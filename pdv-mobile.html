@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#14181F" />
+<title>PDV · Caixa Rápido</title>
+
+<!-- Leitor de código de barras (câmera). Se não carregar, o app cai no teclado manual automaticamente. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+
+<style>
+  /* ============================================================
+     TOKENS — fonte única de cores e medidas (ponto 2 do briefing)
+     Verde = sucesso. Vermelho = problema. Azul = ação principal.
+     ============================================================ */
+  :root{
+    --ink:#14181F;          /* texto */
+    --muted:#6B7280;        /* texto secundário */
+    --bg:#EEF0F3;           /* fundo do app */
+    --surface:#FFFFFF;      /* cartões/painéis */
+    --line:#E2E5EA;         /* divisórias */
+
+    --brand:#2D4ED8;        /* ação principal */
+    --brand-press:#2440B5;
+
+    --ok:#15A34A;           /* SUCESSO (reservado) */
+    --ok-bg:#DCFCE7;
+    --bad:#DC2626;          /* ERRO/ALERTA (reservado) */
+    --bad-bg:#FDE3E3;
+
+    --tap:56px;             /* área mínima de toque */
+    --radius:16px;
+    --shadow:0 1px 2px rgba(20,24,31,.06), 0 8px 24px rgba(20,24,31,.08);
+
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+
+    --safe-b:env(safe-area-inset-bottom,0px);
+  }
+
+  /* Trava de movimento: ocupa a tela exata, sem pull-to-refresh nem zoom */
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{
+    margin:0;height:100%;height:100dvh;width:100%;
+    overflow:hidden;overscroll-behavior:none;position:fixed;inset:0;
+    background:var(--bg);color:var(--ink);
+    font-family:var(--sans);font-size:16px;line-height:1.35;
+    -webkit-user-select:none;user-select:none;
+    -webkit-font-smoothing:antialiased;
+  }
+  input{font-family:inherit;font-size:16px} /* 16px evita zoom no iOS */
+  button{font-family:inherit;cursor:pointer;border:none;background:none}
+
+  /* ---------- App / telas ---------- */
+  #app{position:fixed;inset:0;display:flex;flex-direction:column}
+  .screen{position:absolute;inset:0;display:none;flex-direction:column}
+  .screen.is-active{display:flex}
+
+  .topbar{
+    flex:0 0 auto;display:flex;align-items:center;gap:10px;
+    padding:max(12px,env(safe-area-inset-top,0px)) 16px 12px;
+    background:var(--surface);border-bottom:1px solid var(--line);
+  }
+  .topbar .who{font-weight:700;font-size:15px;letter-spacing:.2px}
+  .topbar .who small{display:block;font-weight:500;color:var(--muted);font-size:12px;letter-spacing:0}
+  .topbar .grow{flex:1}
+  .iconbtn{
+    min-width:44px;height:44px;border-radius:12px;display:grid;place-items:center;
+    color:var(--muted);font-weight:700;font-size:13px;background:var(--bg);
+  }
+  .iconbtn:active{background:#E2E5EA}
+
+  /* ---------- Banner de aviso ---------- */
+  #storageBanner{
+    display:none;background:#FEF3C7;color:#92400E;font-size:12.5px;font-weight:600;
+    padding:8px 16px;text-align:center;border-bottom:1px solid #FACC15;
+  }
+  #storageBanner.show{display:block}
+
+  /* ============================================================
+     LOGIN
+     ============================================================ */
+  #login{justify-content:center;align-items:center;padding:24px}
+  .card{
+    width:100%;max-width:380px;background:var(--surface);border-radius:24px;
+    box-shadow:var(--shadow);padding:28px 22px;
+  }
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+  .brand .mark{
+    width:46px;height:46px;border-radius:13px;background:var(--brand);color:#fff;
+    display:grid;place-items:center;font-weight:800;font-size:20px;
+    box-shadow:0 6px 16px rgba(45,78,216,.35);
+  }
+  .brand h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-.3px}
+  .brand p{margin:1px 0 0;font-size:12.5px;color:var(--muted);font-weight:500}
+
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin:0 0 6px 2px}
+  .field input{
+    width:100%;height:var(--tap);border:1.5px solid var(--line);border-radius:14px;
+    padding:0 16px;background:#fff;color:var(--ink);transition:border-color .15s;
+  }
+  .field input:focus{outline:none;border-color:var(--brand)}
+
+  .btn{
+    width:100%;min-height:var(--tap);border-radius:14px;font-weight:800;font-size:16px;
+    display:flex;align-items:center;justify-content:center;gap:8px;letter-spacing:.2px;
+    transition:transform .05s, background .15s;
+  }
+  .btn:active{transform:scale(.985)}
+  .btn-primary{background:var(--brand);color:#fff}
+  .btn-primary:active{background:var(--brand-press)}
+  .btn-ghost{background:var(--bg);color:var(--ink)}
+  .btn-ok{background:var(--ok);color:#fff}
+  .btn-bad{background:var(--bad-bg);color:var(--bad)}
+
+  .login-err{color:var(--bad);font-size:13px;font-weight:700;min-height:18px;margin:4px 2px 12px;text-align:center}
+  .hint{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;line-height:1.5}
+  .hint b{color:var(--ink)}
+
+  /* ============================================================
+     CAIXA (operador)
+     ============================================================ */
+  .scanwrap{
+    position:relative;flex:0 0 42vh;min-height:240px;background:#0B0E13;overflow:hidden;
+  }
+  #reader{position:absolute;inset:0}
+  #reader video{width:100%!important;height:100%!important;object-fit:cover!important}
+  .reticle{
+    position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;z-index:2;
+  }
+  .reticle .frame{
+    width:74%;max-width:340px;height:120px;border-radius:18px;
+    box-shadow:0 0 0 4000px rgba(0,0,0,.32);
+    border:2px solid rgba(255,255,255,.85);
+  }
+  .reticle .laser{
+    position:absolute;width:74%;max-width:340px;height:2px;background:var(--bad);
+    box-shadow:0 0 12px var(--bad);animation:scan 1.8s ease-in-out infinite;
+  }
+  @keyframes scan{0%,100%{transform:translateY(-58px)}50%{transform:translateY(58px)}}
+  .scan-hint{position:absolute;left:0;right:0;bottom:10px;text-align:center;color:#fff;
+    font-size:12.5px;font-weight:600;opacity:.85;z-index:3;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+
+  /* fallback quando não há câmera */
+  #scanFallback{
+    position:absolute;inset:0;z-index:4;display:none;flex-direction:column;
+    align-items:center;justify-content:center;gap:14px;color:#fff;padding:24px;text-align:center;
+    background:radial-gradient(120% 90% at 50% 20%,#1B2230,#0B0E13);
+  }
+  #scanFallback.show{display:flex}
+  #scanFallback .ico{font-size:34px}
+  #scanFallback p{margin:0;font-size:13.5px;color:#C7CBD3;max-width:280px}
+  #scanFallback .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;width:100%;max-width:320px}
+  #scanFallback .btn{flex:1;min-width:130px}
+
+  /* tira de status (verde/vermelho de resposta imediata) */
+  #statusStrip{
+    flex:0 0 auto;min-height:38px;display:flex;align-items:center;gap:8px;
+    padding:8px 16px;font-weight:700;font-size:13.5px;background:var(--surface);
+    border-bottom:1px solid var(--line);transition:background .2s,color .2s;
+  }
+  #statusStrip .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:0 0 auto}
+  #statusStrip.ok{background:var(--ok-bg);color:#0F7A38}
+  #statusStrip.ok .dot{background:var(--ok)}
+  #statusStrip.bad{background:var(--bad-bg);color:#B91C1C}
+  #statusStrip.bad .dot{background:var(--bad)}
+
+  /* lista de itens da venda */
+  .cart{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 12px 4px}
+  .cart-empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    color:var(--muted);gap:8px;text-align:center;padding:24px}
+  .cart-empty .ico{font-size:30px;opacity:.5}
+  .cart-empty p{margin:0;font-size:13.5px;max-width:240px}
+
+  .line{
+    display:flex;align-items:center;gap:10px;background:var(--surface);
+    border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:8px;
+    animation:pop .18s ease;
+  }
+  @keyframes pop{from{transform:translateY(-6px) scale(.99);opacity:.4}to{transform:none;opacity:1}}
+  .line .info{flex:1;min-width:0}
+  .line .name{font-weight:700;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .line .unit{font-size:12px;color:var(--muted);font-family:var(--mono)}
+  .qtybox{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:11px;overflow:hidden}
+  .qtybox button{width:38px;height:40px;font-size:20px;font-weight:700;color:var(--brand);background:#fff}
+  .qtybox button:active{background:var(--bg)}
+  .qtybox .q{min-width:34px;text-align:center;font-weight:800;font-family:var(--mono);font-size:15px}
+  .line .lt{min-width:72px;text-align:right;font-weight:800;font-family:var(--mono);font-size:15px}
+  .line .del{width:34px;height:40px;color:var(--bad);font-size:18px;display:grid;place-items:center}
+
+  /* rodapé fixo: total + finalizar */
+  .checkout{
+    flex:0 0 auto;background:var(--surface);border-top:1px solid var(--line);
+    padding:12px 16px calc(12px + var(--safe-b));box-shadow:0 -6px 20px rgba(20,24,31,.06);
+  }
+  .totalrow{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:10px}
+  .totalrow .lbl{font-size:12.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .totalrow .lbl span{display:block;font-size:11px;font-weight:600;color:var(--muted);letter-spacing:0;text-transform:none}
+  #cartTotal{font-size:34px;font-weight:800;font-family:var(--mono);letter-spacing:-1px;line-height:1;transition:color .25s}
+  #cartTotal.flash{color:var(--ok)}
+  .checkout .actions{display:flex;gap:10px}
+  #cancelBtn{flex:0 0 auto;width:118px}
+  #finalizeBtn{flex:1}
+  #finalizeBtn:disabled,#cancelBtn:disabled{opacity:.45;pointer-events:none}
+
+  /* ============================================================
+     GERÊNCIA
+     ============================================================ */
+  .mscroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 16px calc(20px + var(--safe-b))}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
+  .stat{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px}
+  .stat.wide{grid-column:1 / -1}
+  .stat .k{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .stat .v{font-size:26px;font-weight:800;font-family:var(--mono);letter-spacing:-.5px;margin-top:4px}
+  .stat.wide .v{font-size:32px;color:var(--ok)}
+
+  .tabs{display:flex;gap:6px;background:var(--bg);padding:4px;border-radius:13px;margin:16px 0 12px;border:1px solid var(--line)}
+  .tabs button{flex:1;min-height:42px;border-radius:10px;font-weight:700;font-size:14px;color:var(--muted)}
+  .tabs button.active{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+
+  .panel{display:none}
+  .panel.is-active{display:block}
+
+  .sectitle{font-size:12.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:4px 2px 10px}
+
+  /* estoque */
+  .prow{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:8px}
+  .prow .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .prow .pname{font-weight:700;font-size:14.5px}
+  .prow .code{font-size:11.5px;color:var(--muted);font-family:var(--mono)}
+  .prow .edits{display:flex;gap:8px;margin-top:10px}
+  .edits .e{flex:1}
+  .edits label{display:block;font-size:11px;font-weight:700;color:var(--muted);margin:0 0 4px 2px}
+  .edits input{width:100%;height:46px;border:1.5px solid var(--line);border-radius:11px;padding:0 12px;
+    font-family:var(--mono);font-weight:700;background:#fff}
+  .edits input:focus{outline:none;border-color:var(--brand)}
+  .prow.low .stockbadge{color:var(--bad)}
+  .saved{color:var(--ok);font-size:11.5px;font-weight:800;opacity:0;transition:opacity .2s}
+  .saved.show{opacity:1}
+
+  .addbox{background:var(--surface);border:1px dashed var(--line);border-radius:16px;padding:14px;margin-bottom:18px}
+  .addbox .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .addbox .grid .full{grid-column:1 / -1}
+  .addbox input{width:100%;height:48px;border:1.5px solid var(--line);border-radius:11px;padding:0 12px;background:#fff}
+  .addbox input:focus{outline:none;border-color:var(--brand)}
+  .addbox .err{color:var(--bad);font-size:12.5px;font-weight:700;min-height:16px;margin:8px 2px 0}
+
+  /* vendas */
+  .sale{background:var(--surface);border:1px solid var(--line);border-radius:14px;margin-bottom:8px;overflow:hidden}
+  .sale .head{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;gap:10px}
+  .sale .meta{font-size:12.5px;color:var(--muted)}
+  .sale .meta b{color:var(--ink);font-weight:700}
+  .sale .amt{font-weight:800;font-family:var(--mono);font-size:16px}
+  .sale .items{display:none;border-top:1px solid var(--line);padding:6px 14px 10px;background:#FAFBFC}
+  .sale.open .items{display:block}
+  .sale .it{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;font-family:var(--mono)}
+  .sale .it span:first-child{font-family:var(--sans)}
+  .empty-list{text-align:center;color:var(--muted);font-size:13.5px;padding:40px 16px}
+
+  /* ============================================================
+     TECLADO MANUAL (modal)
+     ============================================================ */
+  .modal{position:fixed;inset:0;z-index:50;display:none;align-items:flex-end;justify-content:center;
+    background:rgba(20,24,31,.45);backdrop-filter:blur(2px)}
+  .modal.show{display:flex}
+  .sheet{width:100%;max-width:440px;background:var(--surface);border-radius:24px 24px 0 0;
+    padding:18px 18px calc(18px + var(--safe-b));box-shadow:0 -10px 40px rgba(0,0,0,.25);
+    animation:up .2s ease}
+  @keyframes up{from{transform:translateY(30px);opacity:.6}to{transform:none;opacity:1}}
+  .sheet h3{margin:0 0 4px;font-size:16px;font-weight:800}
+  .sheet .sub{margin:0 0 14px;font-size:12.5px;color:var(--muted)}
+  #manualDisplay{height:62px;border:2px solid var(--line);border-radius:14px;display:flex;align-items:center;
+    justify-content:center;font-family:var(--mono);font-size:26px;font-weight:800;letter-spacing:2px;
+    margin-bottom:14px;color:var(--ink);min-height:62px}
+  #manualDisplay.empty{color:#C7CBD3;letter-spacing:1px;font-size:15px;font-weight:600}
+  .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .keypad button{height:58px;border-radius:14px;background:var(--bg);font-size:22px;font-weight:800}
+  .keypad button:active{background:#E2E5EA}
+  .keypad .k-back{color:var(--bad)}
+  .sheet .mactions{display:flex;gap:10px;margin-top:12px}
+  .sheet .mactions .btn{flex:1}
+
+  /* ---------- Toast ---------- */
+  #toast{position:fixed;left:50%;bottom:calc(96px + var(--safe-b));transform:translateX(-50%) translateY(20px);
+    z-index:80;background:var(--ink);color:#fff;padding:12px 18px;border-radius:14px;font-weight:700;font-size:14px;
+    box-shadow:0 10px 30px rgba(0,0,0,.3);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:88vw;text-align:center}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  #toast.ok{background:var(--ok)}
+  #toast.bad{background:var(--bad)}
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ LOGIN ============ -->
+  <section class="screen is-active" id="login">
+    <div class="card">
+      <div class="brand">
+        <div class="mark">P</div>
+        <div>
+          <h1>PDV · Caixa Rápido</h1>
+          <p>Acesso do operador e da gerência</p>
+        </div>
+      </div>
+      <div class="field">
+        <label for="loginUser">Usuário</label>
+        <input id="loginUser" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="seu usuário" />
+      </div>
+      <div class="field">
+        <label for="loginPass">Senha</label>
+        <input id="loginPass" type="password" autocomplete="current-password" placeholder="••••" />
+      </div>
+      <div class="login-err" id="loginErr"></div>
+      <button class="btn btn-primary" id="loginBtn">Entrar</button>
+      <div class="hint">
+        Demonstração — gerência: <b>gerente / 1234</b><br/>caixa: <b>caixa / 1234</b>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CAIXA (OPERADOR) ============ -->
+  <section class="screen" id="operador">
+    <div class="topbar">
+      <div class="who" id="opName">Caixa<small>Operador</small></div>
+      <div class="grow"></div>
+      <button class="iconbtn" id="muteBtn" title="Som">🔊</button>
+      <button class="iconbtn" id="logoutOp">Sair</button>
+    </div>
+    <div id="storageBanner"></div>
+
+    <div class="scanwrap">
+      <div id="reader"></div>
+      <div class="reticle"><div class="frame"></div><div class="laser"></div></div>
+      <div class="scan-hint">Aproxime o código de barras do quadro</div>
+      <div id="scanFallback">
+        <div class="ico">📷</div>
+        <p id="fallbackMsg">Câmera indisponível. Use o teclado para digitar o código do produto.</p>
+        <div class="row">
+          <button class="btn btn-primary" id="manualBtn2">Digitar código</button>
+          <button class="btn btn-ghost" id="retryCam">Tentar câmera</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="statusStrip"><span class="dot"></span><span id="statusText">Pronto para ler</span></div>
+
+    <div class="cart" id="cartScroll">
+      <div class="cart-empty" id="cartEmpty">
+        <div class="ico">🛒</div>
+        <p>Nenhum item na venda. Leia um produto para começar.</p>
+      </div>
+      <div id="cartList"></div>
+    </div>
+
+    <div class="checkout">
+      <div class="totalrow">
+        <div class="lbl">Total<span id="itemCount">0 itens</span></div>
+        <div id="cartTotal">R$ 0,00</div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-bad" id="cancelBtn" disabled>Cancelar</button>
+        <button class="btn btn-ok" id="finalizeBtn" disabled>Finalizar venda</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ GERÊNCIA ============ -->
+  <section class="screen" id="gerente">
+    <div class="topbar">
+      <div class="who" id="gerName">Gerência<small>Estoque e resumo</small></div>
+      <div class="grow"></div>
+      <button class="iconbtn" id="logoutGer">Sair</button>
+    </div>
+    <div id="storageBanner2"></div>
+
+    <div class="mscroll">
+      <div class="cards">
+        <div class="stat wide"><div class="k">Recebido hoje</div><div class="v" id="cardRevenue">R$ 0,00</div></div>
+        <div class="stat"><div class="k">Vendas hoje</div><div class="v" id="cardCount">0</div></div>
+        <div class="stat"><div class="k">Itens vendidos</div><div class="v" id="cardItems">0</div></div>
+      </div>
+
+      <div class="tabs">
+        <button id="tabEstoque" class="active">Estoque</button>
+        <button id="tabVendas">Vendas</button>
+      </div>
+
+      <!-- ESTOQUE -->
+      <div class="panel is-active" id="panelEstoque">
+        <div class="addbox">
+          <div class="sectitle" style="margin-top:0">Adicionar produto</div>
+          <div class="grid">
+            <input class="full" id="np_code" type="tel" inputmode="numeric" placeholder="Código de barras" />
+            <input class="full" id="np_name" type="text" placeholder="Nome do produto" />
+            <input id="np_price" type="tel" inputmode="decimal" placeholder="Preço (R$)" />
+            <input id="np_qty" type="tel" inputmode="numeric" placeholder="Quantidade" />
+          </div>
+          <div class="err" id="np_err"></div>
+          <button class="btn btn-primary" id="addProdBtn" style="margin-top:10px">Cadastrar produto</button>
+        </div>
+
+        <div class="sectitle">Produtos no estoque</div>
+        <div id="prodList"></div>
+      </div>
+
+      <!-- VENDAS -->
+      <div class="panel" id="panelVendas">
+        <div class="sectitle">Vendas do dia</div>
+        <div id="salesList"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TECLADO MANUAL ============ -->
+  <div class="modal" id="manualModal">
+    <div class="sheet">
+      <h3>Digitar código</h3>
+      <p class="sub">Use quando o código não for lido pela câmera.</p>
+      <div id="manualDisplay" class="empty">código do produto</div>
+      <div class="keypad" id="keypad">
+        <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+        <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+        <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+        <button class="k-back" data-k="back">⌫</button><button data-k="0">0</button><button data-k="clear">C</button>
+      </div>
+      <div class="mactions">
+        <button class="btn btn-ghost" id="manualClose">Fechar</button>
+        <button class="btn btn-primary" id="manualSearch">Buscar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<script>
+"use strict";
+/* ================================================================
+   PDV MOBILE — app de uma página só (SPA), tudo client-side.
+   Persistência: usa o storage do artifact (window.storage) quando
+   disponível; senão, roda em memória só nesta sessão (com aviso).
+   ================================================================ */
+
+/* ---------- helpers ---------- */
+const $ = (id) => document.getElementById(id);
+const money = (v) => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
+const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "id-"+Date.now()+"-"+Math.random().toString(16).slice(2);
+const todayKey = (d=new Date()) => d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- camada de dados ---------- */
+const hasStorage = typeof window.storage !== "undefined" && window.storage && typeof window.storage.get === "function";
+let storageOK = hasStorage;
+
+const DB = { users:[], products:[], sales:[] };
+let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, lastScan:{code:"",t:0}, audio:null };
+
+const SEED_USERS = [
+  { username:"gerente", password:"1234", role:"gerente", name:"Gerência" },
+  { username:"caixa",   password:"1234", role:"operador", name:"Caixa 1" }
+];
+const SEED_PRODUCTS = [
+  { code:"7891000100103", name:"Leite Integral 1L",     price:5.49,  qty:40 },
+  { code:"7894900011517", name:"Refrigerante Cola 2L",  price:8.99,  qty:24 },
+  { code:"7891910000197", name:"Açúcar Refinado 1kg",   price:4.29,  qty:30 },
+  { code:"7896005800010", name:"Café Torrado 500g",     price:16.90, qty:18 },
+  { code:"7891000053508", name:"Biscoito Recheado",     price:6.49,  qty:50 },
+  { code:"7898080640017", name:"Pão de Forma",          price:7.99,  qty:12 },
+  { code:"7891150064201", name:"Detergente",            price:2.79,  qty:5  },
+  { code:"7896036090010", name:"Arroz 5kg",             price:24.90, qty:15 }
+];
+
+async function sget(key){
+  try{ const r = await window.storage.get(key); return r ? JSON.parse(r.value) : null; }
+  catch(e){ return null; }
+}
+async function sset(key,val){
+  if(!hasStorage){ storageOK=false; return false; }
+  try{ const ok = await window.storage.set(key, JSON.stringify(val)); if(!ok){storageOK=false;} return !!ok; }
+  catch(e){ storageOK=false; return false; }
+}
+const saveProducts = () => sset("pdv:products", DB.products);
+const saveSales    = () => sset("pdv:sales", DB.sales);
+
+async function boot(){
+  if(hasStorage){
+    DB.users    = await sget("pdv:users");
+    DB.products = await sget("pdv:products");
+    DB.sales    = await sget("pdv:sales");
+  }
+  if(!Array.isArray(DB.users)   || !DB.users.length){ DB.users = SEED_USERS;       await sset("pdv:users", DB.users); }
+  if(!Array.isArray(DB.products)){ DB.products = SEED_PRODUCTS.map(p=>({...p}));    await saveProducts(); }
+  if(!Array.isArray(DB.sales)){ DB.sales = [];                                     await saveSales(); }
+
+  if(!storageOK){
+    const txt = "⚠ Salvando só nesta sessão (armazenamento indisponível no preview)";
+    [$("storageBanner"),$("storageBanner2")].forEach(b=>{ if(b){b.textContent=txt;b.classList.add("show");} });
+  }
+  wire();
+}
+
+/* ---------- som (beep curto) ---------- */
+function initAudio(){
+  if(state.audio || reduceMotion) return;
+  try{ state.audio = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ state.audio=null; }
+}
+function beep(type){
+  if(state.muted || !state.audio) return;
+  try{
+    const ctx = state.audio; if(ctx.state==="suspended") ctx.resume();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = type==="bad" ? 220 : 880;
+    o.type = "sine";
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+(type==="bad"?0.22:0.12));
+    o.start(); o.stop(ctx.currentTime+(type==="bad"?0.23:0.13));
+  }catch(e){}
+}
+
+/* ---------- toast + status ---------- */
+let toastT;
+function toast(msg,type){
+  const t=$("toast"); t.textContent=msg; t.className="show "+(type||"");
+  clearTimeout(toastT); toastT=setTimeout(()=>t.className=t.className.replace("show","").trim(),2200);
+}
+let statusT;
+function setStatus(text,type){
+  const s=$("statusStrip"); $("statusText").textContent=text;
+  s.className=type||"";
+  if(type){ clearTimeout(statusT); statusT=setTimeout(()=>{ s.className=""; $("statusText").textContent="Pronto para ler"; },2600); }
+}
+
+/* ================================================================
+   NAVEGAÇÃO ENTRE TELAS
+   ================================================================ */
+function show(screenId){
+  document.querySelectorAll(".screen").forEach(s=>s.classList.toggle("is-active", s.id===screenId));
+}
+
+function login(){
+  const u=$("loginUser").value.trim().toLowerCase();
+  const p=$("loginPass").value;
+  const found = DB.users.find(x=>x.username.toLowerCase()===u && x.password===p);
+  if(!found){ $("loginErr").textContent="Usuário ou senha incorretos."; beep("bad"); return; }
+  $("loginErr").textContent="";
+  $("loginPass").value="";
+  state.user=found;
+  initAudio();
+
+  if(found.role==="gerente"){
+    $("gerName").innerHTML = "Gerência<small>"+found.name+"</small>";
+    show("gerente"); renderManager();
+  }else{
+    $("opName").innerHTML = (found.name||"Caixa")+"<small>Operador</small>";
+    clearCart();
+    show("operador"); startScanner();
+  }
+}
+
+function logout(){
+  stopScanner();
+  state.user=null; state.cart=[];
+  $("loginUser").value=""; $("loginPass").value="";
+  show("login");
+}
+
+/* ================================================================
+   LEITOR DE CÓDIGO DE BARRAS
+   ================================================================ */
+function startScanner(){
+  const fb=$("scanFallback");
+  if(typeof Html5Qrcode==="undefined"){
+    $("fallbackMsg").textContent="Leitor de câmera não carregou. Digite o código manualmente.";
+    fb.classList.add("show"); state.scanReady=false; return;
+  }
+  fb.classList.remove("show");
+  if(state.scanner && state.scanReady) return;
+
+  const fmts = window.Html5QrcodeSupportedFormats ? [
+    Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+    Html5QrcodeSupportedFormats.UPC_A,  Html5QrcodeSupportedFormats.UPC_E,
+    Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
+    Html5QrcodeSupportedFormats.QR_CODE
+  ] : undefined;
+
+  try{ state.scanner = state.scanner || new Html5Qrcode("reader",{ formatsToSupport:fmts, verbose:false }); }
+  catch(e){ showFallback("Não foi possível iniciar o leitor."); return; }
+
+  state.scanner.start(
+    { facingMode:"environment" },
+    { fps:10, qrbox:(w,h)=>{ const m=Math.min(w,h); return {width:Math.floor(m*0.78), height:120}; } },
+    onScan,
+    ()=>{}
+  ).then(()=>{ state.scanReady=true; })
+   .catch(err=>{
+     const denied = (""+err).toLowerCase().includes("permission") || (""+err).toLowerCase().includes("notallowed");
+     showFallback(denied ? "Permissão de câmera negada. Digite o código manualmente." : "Câmera indisponível. Digite o código manualmente.");
+   });
+}
+function showFallback(msg){
+  state.scanReady=false;
+  $("fallbackMsg").textContent=msg||"Câmera indisponível. Digite o código manualmente.";
+  $("scanFallback").classList.add("show");
+}
+function stopScanner(){
+  if(state.scanner && state.scanReady){
+    try{ state.scanner.stop().then(()=>{ try{state.scanner.clear();}catch(e){} }).catch(()=>{}); }catch(e){}
+  }
+  state.scanReady=false;
+}
+function onScan(code){
+  const now=Date.now();
+  // ignora leituras repetidas do mesmo código em sequência (o leitor dispara várias vezes)
+  if(code===state.lastScan.code && now-state.lastScan.t<1500) return;
+  state.lastScan={code, t:now};
+  addByCode(code);
+}
+
+/* ================================================================
+   CARRINHO / VENDA
+   ================================================================ */
+function findProduct(code){ return DB.products.find(p=>p.code===String(code).trim()); }
+
+function addByCode(rawCode){
+  const code=String(rawCode).trim();
+  if(!code) return;
+  const prod=findProduct(code);
+  if(!prod){ setStatus("Código não cadastrado: "+code,"bad"); beep("bad"); return; }
+
+  const inCart = state.cart.find(i=>i.code===code);
+  const have = inCart ? inCart.qty : 0;
+  if(prod.qty - have <= 0){ setStatus("Estoque esgotado: "+prod.name,"bad"); beep("bad"); return; }
+
+  if(inCart){ inCart.qty++; }
+  else{ state.cart.push({ code:prod.code, name:prod.name, price:prod.price, qty:1 }); }
+
+  setStatus("Adicionado: "+prod.name,"ok"); beep("ok");
+  renderCart(true);
+}
+
+function changeQty(code,delta){
+  const it=state.cart.find(i=>i.code===code); if(!it) return;
+  if(delta>0){
+    const prod=findProduct(code);
+    if(prod && it.qty>=prod.qty){ setStatus("Sem estoque para mais "+it.name,"bad"); beep("bad"); return; }
+  }
+  it.qty+=delta;
+  if(it.qty<=0) state.cart=state.cart.filter(i=>i.code!==code);
+  renderCart();
+}
+function removeItem(code){ state.cart=state.cart.filter(i=>i.code!==code); renderCart(); }
+function clearCart(){ state.cart=[]; renderCart(); }
+function cartTotal(){ return state.cart.reduce((s,i)=>s+i.price*i.qty,0); }
+function cartCount(){ return state.cart.reduce((s,i)=>s+i.qty,0); }
+
+function renderCart(flash){
+  const list=$("cartList"), empty=$("cartEmpty");
+  const has=state.cart.length>0;
+  empty.style.display = has ? "none" : "flex";
+  list.innerHTML = state.cart.map(i=>`
+    <div class="line">
+      <div class="info">
+        <div class="name">${escapeHtml(i.name)}</div>
+        <div class="unit">${money(i.price)} cada</div>
+      </div>
+      <div class="qtybox">
+        <button data-act="minus" data-code="${i.code}">−</button>
+        <div class="q">${i.qty}</div>
+        <button data-act="plus" data-code="${i.code}">+</button>
+      </div>
+      <div class="lt">${money(i.price*i.qty)}</div>
+      <button class="del" data-act="del" data-code="${i.code}">✕</button>
+    </div>`).join("");
+
+  const total=cartTotal();
+  $("cartTotal").textContent=money(total);
+  $("itemCount").textContent=cartCount()+(cartCount()===1?" item":" itens");
+  $("finalizeBtn").disabled=!has;
+  $("cancelBtn").disabled=!has;
+
+  if(flash && !reduceMotion){
+    const t=$("cartTotal"); t.classList.add("flash");
+    setTimeout(()=>t.classList.remove("flash"),300);
+    $("cartScroll").scrollTop=$("cartScroll").scrollHeight;
+  }
+}
+
+function finalizeSale(){
+  if(!state.cart.length) return;
+  const sale={
+    id:uid(), ts:new Date().toISOString(),
+    operator: state.user ? state.user.name : "—",
+    items: state.cart.map(i=>({code:i.code,name:i.name,price:i.price,qty:i.qty})),
+    total: cartTotal()
+  };
+  // baixa de estoque
+  state.cart.forEach(i=>{ const p=findProduct(i.code); if(p){ p.qty=Math.max(0,p.qty-i.qty); } });
+  DB.sales.unshift(sale);
+  saveProducts(); saveSales();
+
+  const v=sale.total;
+  clearCart();
+  setStatus("Venda registrada • "+money(v),"ok"); beep("ok");
+  toast("✓ Venda registrada — "+money(v),"ok");
+}
+
+function cancelSale(){
+  if(!state.cart.length) return;
+  clearCart();
+  setStatus("Venda cancelada","bad");
+}
+
+/* ================================================================
+   GERÊNCIA — cards, estoque, vendas
+   ================================================================ */
+function renderManager(){ renderCards(); renderStock(); renderSales(); }
+
+function renderCards(){
+  const tk=todayKey();
+  const today=DB.sales.filter(s=>todayKey(new Date(s.ts))===tk);
+  const revenue=today.reduce((s,x)=>s+x.total,0);
+  const items=today.reduce((s,x)=>s+x.items.reduce((a,i)=>a+i.qty,0),0);
+  $("cardRevenue").textContent=money(revenue);
+  $("cardCount").textContent=today.length;
+  $("cardItems").textContent=items;
+}
+
+function renderStock(){
+  const el=$("prodList");
+  if(!DB.products.length){ el.innerHTML='<div class="empty-list">Nenhum produto cadastrado.</div>'; return; }
+  el.innerHTML=DB.products.map(p=>`
+    <div class="prow ${p.qty<=5?"low":""}" data-code="${p.code}">
+      <div class="top">
+        <div class="pname">${escapeHtml(p.name)}</div>
+        <div class="stockbadge code">${p.qty} un · ${p.code}</div>
+      </div>
+      <div class="edits">
+        <div class="e">
+          <label>Preço (R$)</label>
+          <input type="tel" inputmode="decimal" data-f="price" value="${p.price.toFixed(2)}" />
+        </div>
+        <div class="e">
+          <label>Estoque</label>
+          <input type="tel" inputmode="numeric" data-f="qty" value="${p.qty}" />
+        </div>
+      </div>
+      <div style="text-align:right;margin-top:6px"><span class="saved">✓ salvo</span></div>
+    </div>`).join("");
+}
+
+function renderSales(){
+  const el=$("salesList");
+  const tk=todayKey();
+  const today=DB.sales.filter(s=>todayKey(new Date(s.ts))===tk);
+  if(!today.length){ el.innerHTML='<div class="empty-list">Nenhuma venda registrada hoje.</div>'; return; }
+  el.innerHTML=today.map(s=>{
+    const t=new Date(s.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+    const n=s.items.reduce((a,i)=>a+i.qty,0);
+    return `<div class="sale" data-id="${s.id}">
+      <div class="head" data-toggle="${s.id}">
+        <div class="meta"><b>${t}</b> · ${n} ${n===1?"item":"itens"} · ${escapeHtml(s.operator)}</div>
+        <div class="amt">${money(s.total)}</div>
+      </div>
+      <div class="items">
+        ${s.items.map(i=>`<div class="it"><span>${escapeHtml(i.name)} ×${i.qty}</span><span>${money(i.price*i.qty)}</span></div>`).join("")}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function addProduct(){
+  const code=$("np_code").value.trim();
+  const name=$("np_name").value.trim();
+  const price=parseFloat(($("np_price").value||"").replace(",","."));
+  const qty=parseInt($("np_qty").value,10);
+  const err=$("np_err");
+
+  if(!/^\d{6,14}$/.test(code)){ err.textContent="Código inválido (use 6 a 14 dígitos)."; return; }
+  if(findProduct(code)){ err.textContent="Já existe um produto com esse código."; return; }
+  if(!name){ err.textContent="Informe o nome do produto."; return; }
+  if(isNaN(price)||price<=0){ err.textContent="Preço inválido."; return; }
+  if(isNaN(qty)||qty<0){ err.textContent="Quantidade inválida."; return; }
+
+  DB.products.unshift({ code, name, price, qty });
+  saveProducts();
+  ["np_code","np_name","np_price","np_qty"].forEach(id=>$(id).value="");
+  err.textContent="";
+  renderStock();
+  toast("✓ "+name+" cadastrado","ok");
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ================================================================
+   TECLADO MANUAL
+   ================================================================ */
+let manualBuf="";
+function openManual(){ manualBuf=""; updateManual(); $("manualModal").classList.add("show"); }
+function closeManual(){ $("manualModal").classList.remove("show"); }
+function updateManual(){
+  const d=$("manualDisplay");
+  if(manualBuf){ d.textContent=manualBuf; d.classList.remove("empty"); }
+  else{ d.textContent="código do produto"; d.classList.add("empty"); }
+}
+
+/* ================================================================
+   WIRING (eventos)
+   ================================================================ */
+function wire(){
+  // login
+  $("loginBtn").addEventListener("click", login);
+  $("loginPass").addEventListener("keydown", e=>{ if(e.key==="Enter") login(); });
+  $("loginUser").addEventListener("keydown", e=>{ if(e.key==="Enter") $("loginPass").focus(); });
+
+  // sair
+  $("logoutOp").addEventListener("click", logout);
+  $("logoutGer").addEventListener("click", logout);
+
+  // mudo
+  $("muteBtn").addEventListener("click", ()=>{
+    state.muted=!state.muted;
+    $("muteBtn").textContent=state.muted?"🔇":"🔊";
+  });
+
+  // câmera fallback
+  $("retryCam").addEventListener("click", ()=>{ state.scanner=null; startScanner(); });
+  $("manualBtn2").addEventListener("click", openManual);
+
+  // carrinho (delegação)
+  $("cartList").addEventListener("click", e=>{
+    const b=e.target.closest("button"); if(!b) return;
+    const code=b.dataset.code, act=b.dataset.act;
+    if(act==="plus") changeQty(code,+1);
+    else if(act==="minus") changeQty(code,-1);
+    else if(act==="del") removeItem(code);
+  });
+
+  $("finalizeBtn").addEventListener("click", finalizeSale);
+  $("cancelBtn").addEventListener("click", cancelSale);
+
+  // gerência: tabs
+  $("tabEstoque").addEventListener("click", ()=>switchTab("estoque"));
+  $("tabVendas").addEventListener("click", ()=>switchTab("vendas"));
+
+  // gerência: editar estoque (delegação no change)
+  $("prodList").addEventListener("change", e=>{
+    const inp=e.target.closest("input"); if(!inp) return;
+    const row=inp.closest(".prow"); const code=row.dataset.code;
+    const p=findProduct(code); if(!p) return;
+    if(inp.dataset.f==="price"){
+      const v=parseFloat((inp.value||"").replace(",",".")); if(isNaN(v)||v<0){ inp.value=p.price.toFixed(2); return; }
+      p.price=v; inp.value=v.toFixed(2);
+    }else{
+      const v=parseInt(inp.value,10); if(isNaN(v)||v<0){ inp.value=p.qty; return; }
+      p.qty=v;
+    }
+    saveProducts();
+    row.classList.toggle("low", p.qty<=5);
+    const badge=row.querySelector(".stockbadge"); if(badge) badge.textContent=p.qty+" un · "+p.code;
+    const s=row.querySelector(".saved"); s.classList.add("show"); setTimeout(()=>s.classList.remove("show"),1100);
+  });
+
+  $("addProdBtn").addEventListener("click", addProduct);
+
+  // vendas: expandir
+  $("salesList").addEventListener("click", e=>{
+    const head=e.target.closest("[data-toggle]"); if(!head) return;
+    head.closest(".sale").classList.toggle("open");
+  });
+
+  // teclado manual
+  $("keypad").addEventListener("click", e=>{
+    const b=e.target.closest("button"); if(!b) return;
+    const k=b.dataset.k;
+    if(k==="back") manualBuf=manualBuf.slice(0,-1);
+    else if(k==="clear") manualBuf="";
+    else if(manualBuf.length<14) manualBuf+=k;
+    updateManual();
+  });
+  $("manualClose").addEventListener("click", closeManual);
+  $("manualSearch").addEventListener("click", ()=>{
+    if(!manualBuf){ return; }
+    addByCode(manualBuf);
+    closeManual();
+  });
+  $("manualModal").addEventListener("click", e=>{ if(e.target.id==="manualModal") closeManual(); });
+
+  // bloqueia gestos/zoom residuais
+  document.addEventListener("gesturestart", e=>e.preventDefault());
+  document.addEventListener("dblclick", e=>e.preventDefault(), {passive:false});
+}
+
+function switchTab(which){
+  const est=which==="estoque";
+  $("tabEstoque").classList.toggle("active",est);
+  $("tabVendas").classList.toggle("active",!est);
+  $("panelEstoque").classList.toggle("is-active",est);
+  $("panelVendas").classList.toggle("is-active",!est);
+  if(!est) renderSales(); else renderStock();
+  renderCards();
+}
+
+/* ---------- start ---------- */
+boot();
+</script>
+</body>
+</html>
