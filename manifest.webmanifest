@@ -2,7 +2,7 @@
   "name": "PDV · Caixa Rápido",
   "short_name": "PDV Caixa",
   "description": "Ponto de venda mobile com leitor de código de barras, controle de estoque e relatórios.",
-  "start_url": "./pdv-mobile.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

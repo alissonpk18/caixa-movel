@@ -29,13 +29,13 @@ barras pela câmera, controle de estoque e relatórios de vendas. Funciona como
 
 ## Como usar
 
-Abra o `pdv-mobile.html` por um servidor **HTTP(S)** (necessário para câmera,
-service worker e instalação como app). Exemplos:
+Sirva a pasta por um servidor **HTTP(S)** (necessário para câmera,
+service worker e instalação como app) e acesse a raiz. Exemplos:
 
 ```bash
 # Python
 python3 -m http.server 8080
-# depois acesse http://localhost:8080/pdv-mobile.html
+# depois acesse http://localhost:8080/
 ```
 
 Ou publique numa hospedagem estática (ex.: **GitHub Pages**) e acesse a URL.
@@ -56,7 +56,8 @@ primeira visita, o app abre **offline**.
 
 | Arquivo                    | Função                                         |
 |----------------------------|------------------------------------------------|
-| `pdv-mobile.html`          | App completo (UI + lógica).                     |
+| `index.html`               | App completo (UI + lógica).                     |
+| `pdv-mobile.html`          | Redirecionamento para a raiz (compatibilidade). |
 | `manifest.webmanifest`     | Metadados do PWA.                               |
 | `sw.js`                    | Service worker (cache/offline).                |
 | `icon-*.png`               | Ícones do app.                                  |
