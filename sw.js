@@ -1,8 +1,10 @@
 /* Service Worker do PDV · Caixa Rápido
    Estratégia: cache-first com atualização em segundo plano.
    Permite abrir e operar o app offline depois da primeira visita. */
-const CACHE = "pdv-cache-v2";
+const CACHE = "pdv-cache-v3";
 const ASSETS = [
+  "./",
+  "./index.html",
   "./pdv-mobile.html",
   "./manifest.webmanifest",
   "./icon-192.png",
