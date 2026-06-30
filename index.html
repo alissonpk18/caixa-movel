@@ -665,7 +665,7 @@
 
 /* Versão do app — mantenha em sincronia com CACHE do sw.js.
    Aparece no canto inferior direito para confirmar visualmente a atualização. */
-const APP_VERSION = "v6";
+const APP_VERSION = "v7";
 
 /* ---------- helpers ---------- */
 const $ = (id) => document.getElementById(id);
@@ -859,34 +859,60 @@ function startScanner(){
     Html5QrcodeSupportedFormats.QR_CODE
   ] : undefined;
 
-  try{ state.scanner = state.scanner || new Html5Qrcode("reader",{ formatsToSupport:fmts, verbose:false }); }
-  catch(e){ showFallback("Não foi possível iniciar o leitor."); return; }
-
-  // Pede resolução alta + câmera traseira + foco contínuo: barcode nítido lê melhor.
-  const videoConstraints = {
-    facingMode:{ ideal:"environment" },
-    width:{ ideal:1920 }, height:{ ideal:1080 },
-    advanced:[{ focusMode:"continuous" }]
+  const scanConfig = {
+    fps:12,
+    // Região de leitura larga (códigos de barras são compridos) e alinhada à .reticle.
+    qrbox:(vw,vh)=>({ width:Math.floor(vw*0.88), height:Math.min(Math.floor(vh*0.55),190) })
   };
 
-  state.scanner.start(
-    videoConstraints,
-    {
-      fps:12,
-      // Região de leitura larga (códigos de barras são compridos) e alinhada à .reticle.
-      qrbox:(vw,vh)=>({ width:Math.floor(vw*0.88), height:Math.min(Math.floor(vh*0.55),190) })
-    },
-    onScan,
-    ()=>{}
-  ).then(()=>{ state.scanReady=true; setStatus("Pronto para ler"); setupTorch(); })
-   .catch(err=>{
-     const e=(""+err).toLowerCase();
-     let msg="Câmera indisponível. Digite o código manualmente.";
-     if(e.includes("permission")||e.includes("notallowed")) msg="Permissão de câmera negada. Toque em “Tentar câmera” e permita o acesso, ou digite o código.";
-     else if(e.includes("notfound")||e.includes("devicesnotfound")||e.includes("overconstrained")) msg="Nenhuma câmera encontrada neste aparelho. Digite o código manualmente.";
-     else if(e.includes("notreadable")||e.includes("trackstart")||e.includes("inuse")) msg="A câmera está em uso por outro app. Feche os outros apps e toque em “Tentar câmera”.";
-     showFallback(msg);
-   });
+  // Tenta da config ideal para a mais compatível. Alguns aparelhos recusam
+  // resolução alta e davam "Câmera indisponível".
+  const attempts = [
+    { facingMode:{ ideal:"environment" }, width:{ ideal:1280 }, height:{ ideal:720 } },
+    { facingMode:"environment" }
+  ];
+
+  // IMPORTANTE: a lib html5-qrcode não aceita chamar start() de novo na mesma
+  // instância (erro "already under transition"). Por isso cada tentativa usa
+  // uma instância NOVA, com o #reader limpo.
+  const freshScanner = ()=>{
+    try{ if(state.scanner) state.scanner.clear(); }catch(e){}
+    const r=$("reader"); if(r) r.innerHTML="";
+    state.scanner = new Html5Qrcode("reader",{ formatsToSupport:fmts, verbose:false });
+  };
+
+  const onOk = ()=>{ state.scanReady=true; setStatus("Pronto para ler"); setupTorch(); };
+  const fatal = (err)=>{
+    const e=(""+(err&&(err.name||err))).toLowerCase();
+    if(e.includes("permission")||e.includes("notallowed")){ showFallback("Permissão de câmera negada. Toque em “Tentar câmera” e permita o acesso, ou digite o código."); return true; }
+    if(e.includes("notreadable")||e.includes("trackstart")||e.includes("inuse")){ showFallback("A câmera está em uso por outro app. Feche os outros apps e toque em “Tentar câmera”."); return true; }
+    return false;
+  };
+
+  // Último recurso: lista as câmeras e abre a traseira pelo id.
+  const startByEnumerate = ()=>{
+    if(typeof Html5Qrcode.getCameras!=="function"){ showFallback("Câmera indisponível. Digite o código manualmente."); return; }
+    Html5Qrcode.getCameras().then(cams=>{
+      if(!cams || !cams.length){ showFallback("Nenhuma câmera encontrada neste aparelho. Digite o código manualmente."); return; }
+      const rear = cams.find(c=>/back|rear|traseir|environment/i.test(c.label||"")) || cams[cams.length-1];
+      try{ freshScanner(); }catch(e){ showFallback("Não foi possível iniciar o leitor."); return; }
+      state.scanner.start(rear.id, scanConfig, onScan, ()=>{})
+        .then(onOk)
+        .catch(err=>{ if(!fatal(err)){ const m=(err&&err.name)?" ("+err.name+")":""; showFallback("Câmera indisponível"+m+". Digite o código manualmente."); } });
+    }).catch(err=>{ if(!fatal(err)) showFallback("Câmera indisponível. Digite o código manualmente."); });
+  };
+
+  const tryStart = (i)=>{
+    try{ freshScanner(); }catch(e){ showFallback("Não foi possível iniciar o leitor."); return; }
+    state.scanner.start(attempts[i], scanConfig, onScan, ()=>{})
+      .then(onOk)
+      .catch(err=>{
+        if(fatal(err)) return;                      // permissão/uso: não insiste
+        if(i+1<attempts.length){ tryStart(i+1); return; }
+        startByEnumerate();                          // tenta enumerar as câmeras
+      });
+  };
+  tryStart(0);
 }
 
 /* Flash / lanterna — só habilita o botão se a câmera em uso suportar torch. */
@@ -917,6 +943,8 @@ function showFallback(msg){
   state.scanReady=false;
   $("fallbackMsg").textContent=msg||"Câmera indisponível. Digite o código manualmente.";
   $("scanFallback").classList.add("show");
+  // limpa o "Abrindo câmera…" para o status não ficar travado
+  const st=$("statusStrip"); if(st){ st.className=""; $("statusText").textContent="Pronto para ler"; }
 }
 function stopScanner(){
   if(state.scanner && state.scanReady){
