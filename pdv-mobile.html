@@ -436,6 +436,18 @@
     </div>
   </div>
 
+  <!-- ============ CONFIRMAÇÃO ============ -->
+  <div class="modal" id="confirmModal">
+    <div class="sheet">
+      <h3 id="confirmTitle">Confirmar</h3>
+      <p class="sub" id="confirmMsg"></p>
+      <div class="mactions">
+        <button class="btn btn-ghost" id="confirmNo">Voltar</button>
+        <button class="btn btn-bad" id="confirmYes">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast"></div>
 </div>
 
@@ -454,9 +466,13 @@ const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "
 const todayKey = (d=new Date()) => d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/* ---------- camada de dados ---------- */
-const hasStorage = typeof window.storage !== "undefined" && window.storage && typeof window.storage.get === "function";
-let storageOK = hasStorage;
+/* ---------- camada de dados ----------
+   Persistência em camadas: 1) window.storage (artifact) →
+   2) localStorage (navegador) → 3) memória (só nesta sessão, com aviso). */
+const hasArtifactStorage = typeof window.storage !== "undefined" && window.storage && typeof window.storage.get === "function";
+let hasLocalStorage = false;
+try{ const k="__pdv_test__"; window.localStorage.setItem(k,"1"); window.localStorage.removeItem(k); hasLocalStorage=true; }catch(e){ hasLocalStorage=false; }
+let storageOK = hasArtifactStorage || hasLocalStorage;
 
 const DB = { users:[], products:[], sales:[] };
 let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, lastScan:{code:"",t:0}, audio:null };
@@ -477,19 +493,25 @@ const SEED_PRODUCTS = [
 ];
 
 async function sget(key){
-  try{ const r = await window.storage.get(key); return r ? JSON.parse(r.value) : null; }
-  catch(e){ return null; }
+  try{
+    if(hasArtifactStorage){ const r = await window.storage.get(key); return r ? JSON.parse(r.value) : null; }
+    if(hasLocalStorage){ const v = window.localStorage.getItem(key); return v ? JSON.parse(v) : null; }
+    return null;
+  }catch(e){ return null; }
 }
 async function sset(key,val){
-  if(!hasStorage){ storageOK=false; return false; }
-  try{ const ok = await window.storage.set(key, JSON.stringify(val)); if(!ok){storageOK=false;} return !!ok; }
-  catch(e){ storageOK=false; return false; }
+  try{
+    if(hasArtifactStorage){ const ok = await window.storage.set(key, JSON.stringify(val)); if(!ok){storageOK=false;} return !!ok; }
+    if(hasLocalStorage){ window.localStorage.setItem(key, JSON.stringify(val)); return true; }
+    storageOK=false; return false;
+  }catch(e){ storageOK=false; return false; }
 }
 const saveProducts = () => sset("pdv:products", DB.products);
 const saveSales    = () => sset("pdv:sales", DB.sales);
+const saveSession  = () => sset("pdv:session", state.user ? {username:state.user.username, role:state.user.role, name:state.user.name} : null);
 
 async function boot(){
-  if(hasStorage){
+  if(hasArtifactStorage || hasLocalStorage){
     DB.users    = await sget("pdv:users");
     DB.products = await sget("pdv:products");
     DB.sales    = await sget("pdv:sales");
@@ -499,10 +521,11 @@ async function boot(){
   if(!Array.isArray(DB.sales)){ DB.sales = [];                                     await saveSales(); }
 
   if(!storageOK){
-    const txt = "⚠ Salvando só nesta sessão (armazenamento indisponível no preview)";
+    const txt = "⚠ Salvando só nesta sessão (armazenamento indisponível)";
     [$("storageBanner"),$("storageBanner2")].forEach(b=>{ if(b){b.textContent=txt;b.classList.add("show");} });
   }
   wire();
+  await restoreSession();
 }
 
 /* ---------- som (beep curto) ---------- */
@@ -545,6 +568,20 @@ function show(screenId){
   document.querySelectorAll(".screen").forEach(s=>s.classList.toggle("is-active", s.id===screenId));
 }
 
+function enterApp(found){
+  state.user=found;
+  initAudio();
+  saveSession();
+  if(found.role==="gerente"){
+    $("gerName").innerHTML = "Gerência<small>"+escapeHtml(found.name||"")+"</small>";
+    show("gerente"); renderManager();
+  }else{
+    $("opName").innerHTML = escapeHtml(found.name||"Caixa")+"<small>Operador</small>";
+    clearCart();
+    show("operador"); startScanner();
+  }
+}
+
 function login(){
   const u=$("loginUser").value.trim().toLowerCase();
   const p=$("loginPass").value;
@@ -552,22 +589,22 @@ function login(){
   if(!found){ $("loginErr").textContent="Usuário ou senha incorretos."; beep("bad"); return; }
   $("loginErr").textContent="";
   $("loginPass").value="";
-  state.user=found;
-  initAudio();
+  enterApp(found);
+}
 
-  if(found.role==="gerente"){
-    $("gerName").innerHTML = "Gerência<small>"+found.name+"</small>";
-    show("gerente"); renderManager();
-  }else{
-    $("opName").innerHTML = (found.name||"Caixa")+"<small>Operador</small>";
-    clearCart();
-    show("operador"); startScanner();
-  }
+async function restoreSession(){
+  const sess = await sget("pdv:session");
+  if(!sess || !sess.username) return false;
+  const found = DB.users.find(x=>x.username===sess.username);
+  if(!found) return false;
+  enterApp(found);
+  return true;
 }
 
 function logout(){
   stopScanner();
   state.user=null; state.cart=[];
+  saveSession();
   $("loginUser").value=""; $("loginPass").value="";
   show("login");
 }
@@ -714,8 +751,10 @@ function finalizeSale(){
 
 function cancelSale(){
   if(!state.cart.length) return;
-  clearCart();
-  setStatus("Venda cancelada","bad");
+  askConfirm("Cancelar venda","Isso vai remover todos os itens da venda atual.",()=>{
+    clearCart();
+    setStatus("Venda cancelada","bad");
+  },"Cancelar venda");
 }
 
 /* ================================================================
@@ -800,6 +839,19 @@ function addProduct(){
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
 /* ================================================================
+   CONFIRMAÇÃO (sheet reutilizável)
+   ================================================================ */
+let confirmCb=null;
+function askConfirm(title,msg,onYes,yesLabel){
+  $("confirmTitle").textContent=title;
+  $("confirmMsg").textContent=msg;
+  $("confirmYes").textContent=yesLabel||"Confirmar";
+  confirmCb=onYes;
+  $("confirmModal").classList.add("show");
+}
+function closeConfirm(){ $("confirmModal").classList.remove("show"); confirmCb=null; }
+
+/* ================================================================
    TECLADO MANUAL
    ================================================================ */
 let manualBuf="";
@@ -840,7 +892,10 @@ function wire(){
     const code=b.dataset.code, act=b.dataset.act;
     if(act==="plus") changeQty(code,+1);
     else if(act==="minus") changeQty(code,-1);
-    else if(act==="del") removeItem(code);
+    else if(act==="del"){
+      const it=state.cart.find(i=>i.code===code);
+      askConfirm("Remover item","Remover "+(it?it.name:"este item")+" da venda?",()=>removeItem(code),"Remover");
+    }
   });
 
   $("finalizeBtn").addEventListener("click", finalizeSale);
@@ -892,6 +947,11 @@ function wire(){
     closeManual();
   });
   $("manualModal").addEventListener("click", e=>{ if(e.target.id==="manualModal") closeManual(); });
+
+  // confirmação (sheet reutilizável)
+  $("confirmYes").addEventListener("click", ()=>{ const cb=confirmCb; closeConfirm(); if(cb) cb(); });
+  $("confirmNo").addEventListener("click", closeConfirm);
+  $("confirmModal").addEventListener("click", e=>{ if(e.target.id==="confirmModal") closeConfirm(); });
 
   // bloqueia gestos/zoom residuais
   document.addEventListener("gesturestart", e=>e.preventDefault());
