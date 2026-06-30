@@ -325,6 +325,26 @@
     background:var(--bad-bg);display:grid;place-items:center;font-weight:700}
   .prow .code-line{font-size:11.5px;color:var(--muted);font-family:var(--mono);margin:2px 2px 0}
 
+  /* ============================================================
+     FILTROS / RELATÓRIOS / BUSCA (Fase 3)
+     ============================================================ */
+  .sales-filter{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center}
+  .sales-filter input[type=date]{flex:1;min-width:130px;height:46px;border:1.5px solid var(--line);
+    border-radius:11px;padding:0 12px;background:#fff;font-family:var(--mono)}
+  .sales-filter .btn{flex:0 0 auto;width:auto;padding:0 14px;min-height:46px;font-size:13px}
+  .sales-summary{margin-bottom:10px}
+  .sales-summary .ss-row{display:flex;justify-content:space-between;align-items:center;background:var(--surface);
+    border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:13px;color:var(--muted)}
+  .sales-summary .ss-row b{font-family:var(--mono);font-size:18px;color:var(--ok)}
+
+  .prod-search{width:100%;height:46px;border:1.5px solid var(--line);border-radius:11px;padding:0 12px;
+    background:#fff;margin-bottom:10px}
+  .prod-search:focus{outline:none;border-color:var(--brand)}
+  .lowcfg{font-size:12.5px;color:var(--muted);margin:0 2px 12px;font-weight:600;display:flex;align-items:center;gap:2px}
+  .lowcfg input{width:54px;height:34px;border:1.5px solid var(--line);border-radius:8px;text-align:center;
+    font-family:var(--mono);font-weight:700;margin:0 4px;background:#fff}
+  .lowcfg input:focus{outline:none;border-color:var(--brand)}
+
   @media (prefers-reduced-motion: reduce){
     *{animation:none!important;transition:none!important}
   }
@@ -441,12 +461,20 @@
         </div>
 
         <div class="sectitle">Produtos no estoque</div>
+        <div class="lowcfg">Alerta de estoque baixo em ≤ <input id="lowThreshold" type="tel" inputmode="numeric" value="5" /> un</div>
+        <input id="prodSearch" class="prod-search" type="search" placeholder="Buscar por nome ou código" />
         <div id="prodList"></div>
       </div>
 
       <!-- VENDAS -->
       <div class="panel" id="panelVendas">
-        <div class="sectitle">Vendas do dia</div>
+        <div class="sectitle">Vendas</div>
+        <div class="sales-filter">
+          <input type="date" id="salesDate" />
+          <button class="btn btn-ghost" id="salesAll">Todas</button>
+          <button class="btn btn-ghost" id="exportCsv">Exportar CSV</button>
+        </div>
+        <div class="sales-summary" id="salesSummary"></div>
         <div id="salesList"></div>
       </div>
     </div>
@@ -546,6 +574,9 @@ try{ const k="__pdv_test__"; window.localStorage.setItem(k,"1"); window.localSto
 let storageOK = hasArtifactStorage || hasLocalStorage;
 
 const DB = { users:[], products:[], sales:[] };
+let settings = { lowStock:5 };
+let salesFilter = todayKey();   // chave de data selecionada; null = todas
+let prodQuery = "";
 let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, lastScan:{code:"",t:0}, audio:null, pay:{method:"dinheiro"} };
 
 const SEED_USERS = [
@@ -586,6 +617,8 @@ async function boot(){
     DB.users    = await sget("pdv:users");
     DB.products = await sget("pdv:products");
     DB.sales    = await sget("pdv:sales");
+    const st    = await sget("pdv:settings");
+    if(st && typeof st.lowStock==="number") settings=st;
   }
   if(!Array.isArray(DB.users)   || !DB.users.length){ DB.users = SEED_USERS;       await sset("pdv:users", DB.users); }
   if(!Array.isArray(DB.products)){ DB.products = SEED_PRODUCTS.map(p=>({...p}));    await saveProducts(); }
@@ -907,7 +940,19 @@ function cancelSale(){
 /* ================================================================
    GERÊNCIA — cards, estoque, vendas
    ================================================================ */
-function renderManager(){ renderCards(); renderStock(); renderSales(); }
+function renderManager(){
+  if($("lowThreshold")) $("lowThreshold").value=settings.lowStock;
+  if($("salesDate")) $("salesDate").value = salesFilter ? keyToIso(salesFilter) : "";
+  renderCards(); renderStock(); renderSales();
+}
+
+/* converte entre a chave interna (2026-6-30) e o input date (2026-06-30) */
+function keyToIso(key){ const a=key.split("-"); return a[0]+"-"+String(a[1]).padStart(2,"0")+"-"+String(a[2]).padStart(2,"0"); }
+function isoToKey(iso){ const a=iso.split("-").map(Number); return a[0]+"-"+a[1]+"-"+a[2]; }
+function filteredSales(){
+  if(!salesFilter) return DB.sales.slice();
+  return DB.sales.filter(s=>todayKey(new Date(s.ts))===salesFilter);
+}
 
 function renderCards(){
   const tk=todayKey();
@@ -922,8 +967,11 @@ function renderCards(){
 function renderStock(){
   const el=$("prodList");
   if(!DB.products.length){ el.innerHTML='<div class="empty-list">Nenhum produto cadastrado.</div>'; return; }
-  el.innerHTML=DB.products.map(p=>`
-    <div class="prow ${p.qty<=5?"low":""}" data-code="${p.code}">
+  const q=prodQuery.trim().toLowerCase();
+  const list=q ? DB.products.filter(p=>p.name.toLowerCase().includes(q)||p.code.includes(q)) : DB.products;
+  if(!list.length){ el.innerHTML='<div class="empty-list">Nenhum produto encontrado.</div>'; return; }
+  el.innerHTML=list.map(p=>`
+    <div class="prow ${p.qty<=settings.lowStock?"low":""}" data-code="${p.code}">
       <div class="top">
         <input class="pname-input" type="text" data-f="name" value="${escapeHtml(p.name)}" />
         <button class="prow-del" data-act="delprod" title="Excluir produto">✕</button>
@@ -945,15 +993,23 @@ function renderStock(){
 
 function renderSales(){
   const el=$("salesList");
-  const tk=todayKey();
-  const today=DB.sales.filter(s=>todayKey(new Date(s.ts))===tk);
-  if(!today.length){ el.innerHTML='<div class="empty-list">Nenhuma venda registrada hoje.</div>'; return; }
-  el.innerHTML=today.map(s=>{
-    const t=new Date(s.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  const list=filteredSales();
+  const totalV=list.reduce((s,x)=>s+x.total,0);
+  const totalItems=list.reduce((s,x)=>s+x.items.reduce((a,i)=>a+i.qty,0),0);
+  if($("salesSummary")){
+    $("salesSummary").innerHTML=`<div class="ss-row"><span>${list.length} ${list.length===1?"venda":"vendas"} · ${totalItems} ${totalItems===1?"item":"itens"}</span><b>${money(totalV)}</b></div>`;
+  }
+  if(!list.length){ el.innerHTML='<div class="empty-list">Nenhuma venda no período.</div>'; return; }
+  const showDate=!salesFilter;
+  el.innerHTML=list.map(s=>{
+    const d=new Date(s.ts);
+    const t=d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+    const dd=showDate ? d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})+" " : "";
     const n=s.items.reduce((a,i)=>a+i.qty,0);
+    const payLabel=s.payment ? (PAY_LABEL[s.payment.method]||s.payment.method||"") : "";
     return `<div class="sale" data-id="${s.id}">
       <div class="head" data-toggle="${s.id}">
-        <div class="meta"><b>${t}</b> · ${n} ${n===1?"item":"itens"} · ${escapeHtml(s.operator)}</div>
+        <div class="meta"><b>${dd}${t}</b> · ${n} ${n===1?"item":"itens"} · ${escapeHtml(s.operator)}${payLabel?" · "+escapeHtml(payLabel):""}</div>
         <div class="amt">${money(s.total)}</div>
       </div>
       <div class="items">
@@ -961,6 +1017,40 @@ function renderSales(){
       </div>
     </div>`;
   }).join("");
+}
+
+/* ---------- exportar CSV ---------- */
+function csvCell(v){ const s=String(v); return /[";\r\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }
+function exportCsv(){
+  const list=filteredSales();
+  if(!list.length){ toast("Nada para exportar","bad"); return; }
+  const rows=[["Data/Hora","Operador","Pagamento","Produto","Codigo","Qtd","Preco Unit","Subtotal","Total Venda"]];
+  list.forEach(s=>{
+    const dt=new Date(s.ts).toLocaleString("pt-BR");
+    const pay=s.payment ? (PAY_LABEL[s.payment.method]||s.payment.method||"") : "";
+    s.items.forEach(i=>{
+      rows.push([dt,s.operator,pay,i.name,i.code,i.qty,i.price.toFixed(2),(i.price*i.qty).toFixed(2),s.total.toFixed(2)]);
+    });
+  });
+  const csv=rows.map(r=>r.map(csvCell).join(";")).join("\r\n");
+  const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url; a.download="vendas-"+(salesFilter?keyToIso(salesFilter):"todas")+".csv";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  toast("✓ CSV exportado","ok");
+}
+
+/* ---------- sincronização entre abas (cards ao vivo) ---------- */
+async function reloadFromStorage(){
+  if(hasArtifactStorage || hasLocalStorage){
+    const p=await sget("pdv:products"), s=await sget("pdv:sales"), st=await sget("pdv:settings");
+    if(Array.isArray(p)) DB.products=p;
+    if(Array.isArray(s)) DB.sales=s;
+    if(st && typeof st.lowStock==="number") settings=st;
+  }
+  if($("gerente").classList.contains("is-active")) renderManager();
 }
 
 function addProduct(){
@@ -1081,7 +1171,7 @@ function wire(){
       p.qty=v;
     }
     saveProducts();
-    row.classList.toggle("low", p.qty<=5);
+    row.classList.toggle("low", p.qty<=settings.lowStock);
     const badge=row.querySelector(".stockbadge"); if(badge) badge.textContent=p.qty+" un · "+p.code;
     const s=row.querySelector(".saved"); s.classList.add("show"); setTimeout(()=>s.classList.remove("show"),1100);
   });
@@ -1099,6 +1189,26 @@ function wire(){
   });
 
   $("addProdBtn").addEventListener("click", addProduct);
+
+  // gerência: busca de produtos
+  $("prodSearch").addEventListener("input", e=>{ prodQuery=e.target.value; renderStock(); });
+
+  // gerência: limite de estoque baixo configurável
+  $("lowThreshold").addEventListener("change", e=>{
+    const v=parseInt(e.target.value,10);
+    settings.lowStock=(isNaN(v)||v<0)?0:v;
+    e.target.value=settings.lowStock;
+    sset("pdv:settings", settings);
+    renderStock();
+  });
+
+  // gerência: filtro de vendas por data + export CSV
+  $("salesDate").addEventListener("change", e=>{ salesFilter=e.target.value?isoToKey(e.target.value):null; renderSales(); });
+  $("salesAll").addEventListener("click", ()=>{ salesFilter=null; $("salesDate").value=""; renderSales(); });
+  $("exportCsv").addEventListener("click", exportCsv);
+
+  // sincronização entre abas (cards/estoque ao vivo)
+  window.addEventListener("storage", e=>{ if(e.key && e.key.indexOf("pdv:")===0) reloadFromStorage(); });
 
   // vendas: expandir
   $("salesList").addEventListener("click", e=>{
