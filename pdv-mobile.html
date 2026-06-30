@@ -290,6 +290,41 @@
   #toast.ok{background:var(--ok)}
   #toast.bad{background:var(--bad)}
 
+  /* ============================================================
+     PAGAMENTO + COMPROVANTE (Fase 2)
+     ============================================================ */
+  .pay-total{font-family:var(--mono);font-size:34px;font-weight:800;text-align:center;margin:2px 0 14px;letter-spacing:-1px}
+  .pay-methods{display:flex;gap:8px;margin-bottom:14px}
+  .pay-methods button{flex:1;min-height:48px;border-radius:12px;background:var(--bg);font-weight:700;font-size:14px;color:var(--muted);border:1.5px solid var(--line)}
+  .pay-methods button.active{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .pay-cash label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin:0 0 6px 2px}
+  .pay-cash input{width:100%;height:var(--tap);border:1.5px solid var(--line);border-radius:14px;padding:0 16px;
+    font-family:var(--mono);font-weight:800;font-size:20px;background:#fff}
+  .pay-cash input:focus{outline:none;border-color:var(--brand)}
+  .pay-change{margin-top:10px;text-align:right;font-size:14px;color:var(--muted)}
+  .pay-change b{font-family:var(--mono);font-size:18px;color:var(--ink)}
+
+  .receipt{background:#fff;border:1px dashed var(--line);border-radius:14px;padding:16px;margin-bottom:14px;
+    font-family:var(--mono);font-size:13px;max-height:50vh;overflow-y:auto}
+  .receipt .r-head{text-align:center;margin-bottom:10px}
+  .receipt .r-title{font-weight:800;font-size:15px;font-family:var(--sans)}
+  .receipt .r-sub{font-size:11.5px;color:var(--muted)}
+  .receipt .r-it{display:flex;justify-content:space-between;padding:2px 0;gap:8px}
+  .receipt .r-it span:first-child{font-family:var(--sans)}
+  .receipt .r-total{display:flex;justify-content:space-between;font-weight:800;font-size:16px;
+    border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);padding:8px 0;margin:8px 0}
+  .receipt .r-pay{margin-top:6px}
+  .receipt .r-foot{text-align:center;margin-top:12px;color:var(--muted);font-size:11.5px}
+
+  /* estoque: nome editável + excluir produto */
+  .prow .top{align-items:center}
+  .prow .pname-input{flex:1;min-width:0;font-weight:700;font-size:14.5px;border:1.5px solid transparent;
+    border-radius:8px;padding:6px 8px;background:transparent;color:var(--ink)}
+  .prow .pname-input:focus{outline:none;border-color:var(--brand);background:#fff}
+  .prow-del{width:34px;height:34px;flex:0 0 auto;color:var(--bad);font-size:16px;border-radius:9px;
+    background:var(--bad-bg);display:grid;place-items:center;font-weight:700}
+  .prow .code-line{font-size:11.5px;color:var(--muted);font-family:var(--mono);margin:2px 2px 0}
+
   @media (prefers-reduced-motion: reduce){
     *{animation:none!important;transition:none!important}
   }
@@ -436,6 +471,42 @@
     </div>
   </div>
 
+  <!-- ============ PAGAMENTO ============ -->
+  <div class="modal" id="payModal">
+    <div class="sheet">
+      <h3>Pagamento</h3>
+      <p class="sub">Total a receber</p>
+      <div class="pay-total" id="payTotal">R$ 0,00</div>
+      <div class="pay-methods" id="payMethods">
+        <button data-m="dinheiro" class="active">Dinheiro</button>
+        <button data-m="cartao">Cartão</button>
+        <button data-m="pix">Pix</button>
+      </div>
+      <div class="pay-cash" id="payCashWrap">
+        <label for="payReceived">Valor recebido (R$)</label>
+        <input id="payReceived" type="tel" inputmode="decimal" placeholder="0,00" />
+        <div class="pay-change">Troco: <b id="payChange">R$ 0,00</b></div>
+      </div>
+      <div class="mactions">
+        <button class="btn btn-ghost" id="payClose">Voltar</button>
+        <button class="btn btn-ok" id="payConfirm">Confirmar pagamento</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ COMPROVANTE ============ -->
+  <div class="modal" id="receiptModal">
+    <div class="sheet">
+      <h3>Comprovante</h3>
+      <p class="sub">Venda registrada com sucesso.</p>
+      <div class="receipt" id="receiptBox"></div>
+      <div class="mactions">
+        <button class="btn btn-ghost" id="receiptClose">Fechar</button>
+        <button class="btn btn-primary" id="receiptPrint">Imprimir</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ CONFIRMAÇÃO ============ -->
   <div class="modal" id="confirmModal">
     <div class="sheet">
@@ -475,7 +546,7 @@ try{ const k="__pdv_test__"; window.localStorage.setItem(k,"1"); window.localSto
 let storageOK = hasArtifactStorage || hasLocalStorage;
 
 const DB = { users:[], products:[], sales:[] };
-let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, lastScan:{code:"",t:0}, audio:null };
+let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, lastScan:{code:"",t:0}, audio:null, pay:{method:"dinheiro"} };
 
 const SEED_USERS = [
   { username:"gerente", password:"1234", role:"gerente", name:"Gerência" },
@@ -730,13 +801,14 @@ function renderCart(flash){
   }
 }
 
-function finalizeSale(){
-  if(!state.cart.length) return;
+function finalizeSale(payment){
+  if(!state.cart.length) return null;
   const sale={
     id:uid(), ts:new Date().toISOString(),
     operator: state.user ? state.user.name : "—",
     items: state.cart.map(i=>({code:i.code,name:i.name,price:i.price,qty:i.qty})),
-    total: cartTotal()
+    total: cartTotal(),
+    payment: payment || { method:"—", received:cartTotal(), change:0 }
   };
   // baixa de estoque
   state.cart.forEach(i=>{ const p=findProduct(i.code); if(p){ p.qty=Math.max(0,p.qty-i.qty); } });
@@ -747,6 +819,81 @@ function finalizeSale(){
   clearCart();
   setStatus("Venda registrada • "+money(v),"ok"); beep("ok");
   toast("✓ Venda registrada — "+money(v),"ok");
+  return sale;
+}
+
+/* ---------- pagamento + troco ---------- */
+const PAY_LABEL = { dinheiro:"Dinheiro", cartao:"Cartão", pix:"Pix" };
+function openPay(){
+  if(!state.cart.length) return;
+  state.pay={ method:"dinheiro" };
+  $("payTotal").textContent=money(cartTotal());
+  $("payMethods").querySelectorAll("button").forEach(b=>b.classList.toggle("active", b.dataset.m==="dinheiro"));
+  $("payReceived").value="";
+  $("payCashWrap").style.display="block";
+  updateChange();
+  $("payModal").classList.add("show");
+  setTimeout(()=>{ try{ $("payReceived").focus(); }catch(e){} },120);
+}
+function selectMethod(m){
+  state.pay.method=m;
+  $("payMethods").querySelectorAll("button").forEach(b=>b.classList.toggle("active", b.dataset.m===m));
+  $("payCashWrap").style.display = m==="dinheiro" ? "block" : "none";
+}
+function updateChange(){
+  const rec=parseFloat(($("payReceived").value||"").replace(",","."))||0;
+  $("payChange").textContent=money(Math.max(0, rec-cartTotal()));
+}
+function confirmPay(){
+  const total=cartTotal();
+  let received=total, change=0;
+  if(state.pay.method==="dinheiro"){
+    received=parseFloat(($("payReceived").value||"").replace(",","."))||0;
+    if(received < total){ toast("Valor recebido menor que o total","bad"); beep("bad"); return; }
+    change=received-total;
+  }
+  const sale=finalizeSale({ method:state.pay.method, received, change });
+  $("payModal").classList.remove("show");
+  if(sale) showReceipt(sale);
+}
+
+/* ---------- comprovante ---------- */
+function showReceipt(sale){
+  const t=new Date(sale.ts).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+  const pay=sale.payment||{method:"—"};
+  const methodLabel=PAY_LABEL[pay.method]||pay.method||"—";
+  const lines=sale.items.map(i=>`<div class="r-it"><span>${escapeHtml(i.name)} ×${i.qty}</span><span>${money(i.price*i.qty)}</span></div>`).join("");
+  let payExtra="";
+  if(pay.method==="dinheiro"){
+    payExtra=`<div class="r-it"><span>Recebido</span><span>${money(pay.received)}</span></div>`
+            +`<div class="r-it"><span>Troco</span><span>${money(pay.change)}</span></div>`;
+  }
+  $("receiptBox").innerHTML=`
+    <div class="r-head">
+      <div class="r-title">PDV · Caixa Rápido</div>
+      <div class="r-sub">${t}</div>
+      <div class="r-sub">Operador: ${escapeHtml(sale.operator)}</div>
+    </div>
+    <div class="r-items">${lines}</div>
+    <div class="r-total"><span>TOTAL</span><span>${money(sale.total)}</span></div>
+    <div class="r-pay"><div class="r-it"><span>Pagamento</span><span>${escapeHtml(methodLabel)}</span></div>${payExtra}</div>
+    <div class="r-foot">Obrigado pela preferência!</div>`;
+  $("receiptModal").classList.add("show");
+}
+function printReceipt(){
+  const html=$("receiptBox").innerHTML;
+  const w=window.open("","_blank","width=380,height=640");
+  if(!w){ toast("Permita pop-ups para imprimir","bad"); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Comprovante</title><style>
+    body{font-family:ui-monospace,Menlo,Consolas,monospace;padding:16px;color:#000;font-size:13px}
+    .r-head{text-align:center;margin-bottom:10px}.r-title{font-weight:800;font-size:15px;font-family:sans-serif}
+    .r-sub{font-size:11.5px;color:#444}
+    .r-it{display:flex;justify-content:space-between;padding:2px 0;gap:8px}
+    .r-it span:first-child{font-family:sans-serif}
+    .r-total{display:flex;justify-content:space-between;font-weight:800;font-size:16px;border-top:1px dashed #000;border-bottom:1px dashed #000;padding:8px 0;margin:8px 0}
+    .r-foot{text-align:center;margin-top:12px;font-size:11.5px;color:#444}
+  </style></head><body>${html}<script>window.onload=function(){window.print();}<\/script></body></html>`);
+  w.document.close();
 }
 
 function cancelSale(){
@@ -778,9 +925,10 @@ function renderStock(){
   el.innerHTML=DB.products.map(p=>`
     <div class="prow ${p.qty<=5?"low":""}" data-code="${p.code}">
       <div class="top">
-        <div class="pname">${escapeHtml(p.name)}</div>
-        <div class="stockbadge code">${p.qty} un · ${p.code}</div>
+        <input class="pname-input" type="text" data-f="name" value="${escapeHtml(p.name)}" />
+        <button class="prow-del" data-act="delprod" title="Excluir produto">✕</button>
       </div>
+      <div class="code-line stockbadge">${p.qty} un · ${p.code}</div>
       <div class="edits">
         <div class="e">
           <label>Preço (R$)</label>
@@ -898,8 +1046,20 @@ function wire(){
     }
   });
 
-  $("finalizeBtn").addEventListener("click", finalizeSale);
+  $("finalizeBtn").addEventListener("click", openPay);
   $("cancelBtn").addEventListener("click", cancelSale);
+
+  // pagamento
+  $("payMethods").addEventListener("click", e=>{ const b=e.target.closest("button"); if(b) selectMethod(b.dataset.m); });
+  $("payReceived").addEventListener("input", updateChange);
+  $("payClose").addEventListener("click", ()=>$("payModal").classList.remove("show"));
+  $("payConfirm").addEventListener("click", confirmPay);
+  $("payModal").addEventListener("click", e=>{ if(e.target.id==="payModal") $("payModal").classList.remove("show"); });
+
+  // comprovante
+  $("receiptClose").addEventListener("click", ()=>$("receiptModal").classList.remove("show"));
+  $("receiptPrint").addEventListener("click", printReceipt);
+  $("receiptModal").addEventListener("click", e=>{ if(e.target.id==="receiptModal") $("receiptModal").classList.remove("show"); });
 
   // gerência: tabs
   $("tabEstoque").addEventListener("click", ()=>switchTab("estoque"));
@@ -910,7 +1070,10 @@ function wire(){
     const inp=e.target.closest("input"); if(!inp) return;
     const row=inp.closest(".prow"); const code=row.dataset.code;
     const p=findProduct(code); if(!p) return;
-    if(inp.dataset.f==="price"){
+    if(inp.dataset.f==="name"){
+      const v=inp.value.trim(); if(!v){ inp.value=p.name; return; }
+      p.name=v; inp.value=v;
+    }else if(inp.dataset.f==="price"){
       const v=parseFloat((inp.value||"").replace(",",".")); if(isNaN(v)||v<0){ inp.value=p.price.toFixed(2); return; }
       p.price=v; inp.value=v.toFixed(2);
     }else{
@@ -921,6 +1084,18 @@ function wire(){
     row.classList.toggle("low", p.qty<=5);
     const badge=row.querySelector(".stockbadge"); if(badge) badge.textContent=p.qty+" un · "+p.code;
     const s=row.querySelector(".saved"); s.classList.add("show"); setTimeout(()=>s.classList.remove("show"),1100);
+  });
+
+  // gerência: excluir produto (delegação no click)
+  $("prodList").addEventListener("click", e=>{
+    const b=e.target.closest("[data-act='delprod']"); if(!b) return;
+    const row=b.closest(".prow"); const code=row.dataset.code;
+    const p=findProduct(code); if(!p) return;
+    askConfirm("Excluir produto","Remover \""+p.name+"\" do estoque? Esta ação não pode ser desfeita.",()=>{
+      DB.products=DB.products.filter(x=>x.code!==code);
+      saveProducts(); renderStock();
+      toast("Produto removido","bad");
+    },"Excluir");
   });
 
   $("addProdBtn").addEventListener("click", addProduct);
