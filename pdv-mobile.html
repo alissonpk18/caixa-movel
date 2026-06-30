@@ -356,6 +356,32 @@
     font-family:var(--mono);font-weight:700;margin:0 4px;background:#fff}
   .lowcfg input:focus{outline:none;border-color:var(--brand)}
 
+  /* ============================================================
+     USUÁRIOS (controle de acesso — gerência)
+     ============================================================ */
+  .addbox select{width:100%;height:48px;border:1.5px solid var(--line);border-radius:11px;padding:0 12px;background:#fff;color:var(--ink)}
+  .addbox select:focus{outline:none;border-color:var(--brand)}
+  .permline{display:flex;align-items:center;gap:9px;margin-top:12px;font-size:13.5px;font-weight:600;color:var(--ink)}
+  .permline input{width:22px;height:22px;accent-color:var(--brand);flex:0 0 auto;margin:0}
+  .permline.off{display:none}
+
+  .urow{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:8px}
+  .urow .utop{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .urow .uname{font-weight:700;font-size:14.5px}
+  .urow .umeta{font-size:11.5px;color:var(--muted);font-family:var(--mono);margin-top:2px}
+  .urow .urole{display:inline-block;font-family:var(--sans);font-weight:700;font-size:10.5px;letter-spacing:.4px;
+    text-transform:uppercase;padding:2px 8px;border-radius:999px;background:var(--bg);color:var(--muted);margin-left:6px}
+  .urow .urole.ger{background:#E7ECFF;color:var(--brand)}
+  .urow .unote{margin-top:10px;font-size:12px;color:var(--muted);font-weight:600}
+
+  /* campos genéricos dentro de uma sheet (modal de restock) */
+  .sheet .fld{width:100%;height:var(--tap);border:1.5px solid var(--line);border-radius:14px;padding:0 16px;
+    background:#fff;color:var(--ink);margin-bottom:10px}
+  .sheet .fld:focus{outline:none;border-color:var(--brand)}
+  .sheet .found{font-size:13px;font-weight:700;color:var(--ok);min-height:18px;margin:0 2px 8px}
+  .sheet .found.bad{color:var(--bad)}
+  .sheet .err{color:var(--bad);font-size:12.5px;font-weight:700;min-height:16px;margin:0 2px 8px}
+
   @media (prefers-reduced-motion: reduce){
     *{animation:none!important;transition:none!important}
   }
@@ -395,6 +421,7 @@
     <div class="topbar">
       <div class="who" id="opName">Caixa<small>Operador</small></div>
       <div class="grow"></div>
+      <button class="iconbtn" id="restockBtn" title="Adicionar ao estoque" style="display:none">+Estoque</button>
       <button class="iconbtn" id="muteBtn" title="Som" aria-label="Ativar ou silenciar o som">🔊</button>
       <button class="iconbtn" id="logoutOp">Sair</button>
     </div>
@@ -455,6 +482,7 @@
       <div class="tabs">
         <button id="tabEstoque" class="active">Estoque</button>
         <button id="tabVendas">Vendas</button>
+        <button id="tabUsuarios">Usuários</button>
       </div>
 
       <!-- ESTOQUE -->
@@ -487,6 +515,31 @@
         </div>
         <div class="sales-summary" id="salesSummary"></div>
         <div id="salesList"></div>
+      </div>
+
+      <!-- USUÁRIOS -->
+      <div class="panel" id="panelUsuarios">
+        <div class="addbox">
+          <div class="sectitle" style="margin-top:0">Cadastrar usuário</div>
+          <div class="grid">
+            <input class="full" id="nu_name" type="text" placeholder="Nome (ex: Caixa 2)" />
+            <input id="nu_user" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="Usuário (login)" />
+            <input id="nu_pass" type="text" autocomplete="off" placeholder="Senha" />
+            <select id="nu_role" class="full" aria-label="Perfil do usuário">
+              <option value="operador">Caixa (operador)</option>
+              <option value="gerente">Gerência</option>
+            </select>
+          </div>
+          <label class="permline" id="nu_permLine">
+            <input type="checkbox" id="nu_stock" />
+            <span>Pode adicionar itens ao estoque</span>
+          </label>
+          <div class="err" id="nu_err"></div>
+          <button class="btn btn-primary" id="addUserBtn" style="margin-top:10px">Cadastrar usuário</button>
+        </div>
+
+        <div class="sectitle">Usuários cadastrados</div>
+        <div id="userList"></div>
       </div>
     </div>
   </section>
@@ -546,6 +599,22 @@
     </div>
   </div>
 
+  <!-- ============ ADICIONAR AO ESTOQUE (caixa autorizado) ============ -->
+  <div class="modal" id="restockModal" role="dialog" aria-modal="true" aria-labelledby="restockTitle">
+    <div class="sheet">
+      <h3 id="restockTitle">Adicionar ao estoque</h3>
+      <p class="sub">Informe o código do produto e quanto entrar no estoque.</p>
+      <input id="rs_code" class="fld" type="tel" inputmode="numeric" autocomplete="off" placeholder="Código de barras" />
+      <div class="found" id="rs_found"></div>
+      <input id="rs_qty" class="fld" type="tel" inputmode="numeric" autocomplete="off" placeholder="Quantidade a adicionar" />
+      <div class="err" id="rs_err"></div>
+      <div class="mactions">
+        <button class="btn btn-ghost" id="rsClose">Fechar</button>
+        <button class="btn btn-primary" id="rsConfirm">Adicionar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ CONFIRMAÇÃO ============ -->
   <div class="modal" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
     <div class="sheet">
@@ -598,9 +667,11 @@ let prodQuery = "";
 let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, lastScan:{code:"",t:0}, audio:null, pay:{method:"dinheiro"} };
 
 const SEED_USERS = [
-  { username:"gerente", password:"1234", role:"gerente", name:"Gerência" },
-  { username:"caixa",   password:"1234", role:"operador", name:"Caixa 1" }
+  { username:"gerente", password:"1234", role:"gerente",  name:"Gerência", canAddStock:true },
+  { username:"caixa",   password:"1234", role:"operador", name:"Caixa 1",  canAddStock:false }
 ];
+/* a gerência tem acesso total ao estoque; para operadores a permissão é opcional */
+function canAddStock(user){ return !!user && (user.role==="gerente" || user.canAddStock===true); }
 const SEED_PRODUCTS = [
   { code:"7891000100103", name:"Leite Integral 1L",     price:5.49,  qty:40 },
   { code:"7894900011517", name:"Refrigerante Cola 2L",  price:8.99,  qty:24 },
@@ -628,6 +699,7 @@ async function sset(key,val){
 }
 const saveProducts = () => sset("pdv:products", DB.products);
 const saveSales    = () => sset("pdv:sales", DB.sales);
+const saveUsers    = () => sset("pdv:users", DB.users);
 const saveSession  = () => sset("pdv:session", state.user ? {username:state.user.username, role:state.user.role, name:state.user.name} : null);
 
 async function boot(){
@@ -699,6 +771,7 @@ function enterApp(found){
     show("gerente"); renderManager();
   }else{
     $("opName").innerHTML = escapeHtml(found.name||"Caixa")+"<small>Operador</small>";
+    $("restockBtn").style.display = canAddStock(found) ? "" : "none";
     clearCart();
     show("operador"); startScanner();
   }
@@ -961,7 +1034,7 @@ function cancelSale(){
 function renderManager(){
   if($("lowThreshold")) $("lowThreshold").value=settings.lowStock;
   if($("salesDate")) $("salesDate").value = salesFilter ? keyToIso(salesFilter) : "";
-  renderCards(); renderStock(); renderSales();
+  renderCards(); renderStock(); renderSales(); renderUsers();
 }
 
 /* converte entre a chave interna (2026-6-30) e o input date (2026-06-30) */
@@ -1063,12 +1136,18 @@ function exportCsv(){
 /* ---------- sincronização entre abas (cards ao vivo) ---------- */
 async function reloadFromStorage(){
   if(hasArtifactStorage || hasLocalStorage){
-    const p=await sget("pdv:products"), s=await sget("pdv:sales"), st=await sget("pdv:settings");
+    const p=await sget("pdv:products"), s=await sget("pdv:sales"), st=await sget("pdv:settings"), u=await sget("pdv:users");
     if(Array.isArray(p)) DB.products=p;
     if(Array.isArray(s)) DB.sales=s;
+    if(Array.isArray(u) && u.length) DB.users=u;
     if(st && typeof st.lowStock==="number") settings=st;
   }
   if($("gerente").classList.contains("is-active")) renderManager();
+  // se um operador está logado, mantém o botão de estoque coerente com a permissão atual
+  if(state.user && state.user.role==="operador" && $("operador").classList.contains("is-active")){
+    const fresh=DB.users.find(x=>x.username===state.user.username);
+    if(fresh){ state.user=fresh; $("restockBtn").style.display = canAddStock(fresh) ? "" : "none"; }
+  }
 }
 
 function addProduct(){
@@ -1090,6 +1169,115 @@ function addProduct(){
   err.textContent="";
   renderStock();
   toast("✓ "+name+" cadastrado","ok");
+}
+
+/* ================================================================
+   GERÊNCIA — usuários e permissões
+   ================================================================ */
+function renderUsers(){
+  const el=$("userList"); if(!el) return;
+  if(!DB.users.length){ el.innerHTML='<div class="empty-list">Nenhum usuário cadastrado.</div>'; return; }
+  const meUser = state.user ? state.user.username : null;
+  const managers = DB.users.filter(u=>u.role==="gerente").length;
+  el.innerHTML=DB.users.map(u=>{
+    const isGer = u.role==="gerente";
+    const isMe  = u.username===meUser;
+    // não dá pra excluir a si mesmo nem o último gerente (evita travar o acesso)
+    const lockDel = isMe || (isGer && managers<=1);
+    const roleTag = isGer ? '<span class="urole ger">Gerência</span>' : '<span class="urole">Caixa</span>';
+    const perm = isGer
+      ? '<div class="unote">Acesso total ao estoque (gerência).</div>'
+      : `<label class="permline"><input type="checkbox" data-act="togglestock" ${u.canAddStock?"checked":""} /> <span>Pode adicionar itens ao estoque</span></label>`;
+    return `<div class="urow" data-username="${escapeHtml(u.username)}">
+      <div class="utop">
+        <div class="uinfo">
+          <div class="uname">${escapeHtml(u.name||u.username)}${roleTag}</div>
+          <div class="umeta">@${escapeHtml(u.username)}</div>
+        </div>
+        <button class="prow-del" data-act="deluser" title="Excluir usuário" ${lockDel?"disabled style=\"opacity:.35;pointer-events:none\"":""}>✕</button>
+      </div>
+      ${perm}
+    </div>`;
+  }).join("");
+}
+
+function syncRolePerm(){
+  // o checkbox de permissão só faz sentido para operador; gerência já tem acesso total
+  const isGer = $("nu_role").value==="gerente";
+  $("nu_permLine").classList.toggle("off", isGer);
+}
+
+function addUser(){
+  const name=$("nu_name").value.trim();
+  const username=$("nu_user").value.trim().toLowerCase();
+  const password=$("nu_pass").value;
+  const role=$("nu_role").value==="gerente" ? "gerente" : "operador";
+  const stock = role==="gerente" ? true : $("nu_stock").checked;
+  const err=$("nu_err");
+
+  if(!name){ err.textContent="Informe o nome do usuário."; return; }
+  if(!/^[a-z0-9._-]{3,20}$/.test(username)){ err.textContent="Usuário: 3 a 20 caracteres (letras, números, . _ -)."; return; }
+  if(DB.users.some(u=>u.username.toLowerCase()===username)){ err.textContent="Já existe um usuário com esse login."; return; }
+  if(!password || password.length<4){ err.textContent="A senha precisa ter ao menos 4 caracteres."; return; }
+
+  DB.users.push({ username, password, role, name, canAddStock:stock });
+  saveUsers();
+  ["nu_name","nu_user","nu_pass"].forEach(id=>$(id).value="");
+  $("nu_role").value="operador"; $("nu_stock").checked=false; syncRolePerm();
+  err.textContent="";
+  renderUsers();
+  toast("✓ "+name+" cadastrado","ok");
+}
+
+function toggleUserStock(username,allow){
+  const u=DB.users.find(x=>x.username===username); if(!u||u.role==="gerente") return;
+  u.canAddStock=!!allow;
+  saveUsers();
+  // se o próprio operador alterado estiver logado em outra aba, a sincronização atualiza o botão
+  toast(allow?("✓ "+(u.name||u.username)+" pode repor estoque"):("Permissão removida de "+(u.name||u.username)), allow?"ok":"bad");
+}
+
+function deleteUser(username){
+  const u=DB.users.find(x=>x.username===username); if(!u) return;
+  if(state.user && u.username===state.user.username){ toast("Você não pode excluir o próprio usuário","bad"); return; }
+  if(u.role==="gerente" && DB.users.filter(x=>x.role==="gerente").length<=1){ toast("Mantenha ao menos um usuário de gerência","bad"); return; }
+  askConfirm("Excluir usuário","Remover \""+(u.name||u.username)+"\" do acesso ao sistema?",()=>{
+    DB.users=DB.users.filter(x=>x.username!==username);
+    saveUsers(); renderUsers();
+    toast("Usuário removido","bad");
+  },"Excluir");
+}
+
+/* ================================================================
+   CAIXA — adicionar ao estoque (operador autorizado)
+   ================================================================ */
+function openRestock(){
+  if(!canAddStock(state.user)) return;
+  $("rs_code").value=""; $("rs_qty").value="";
+  $("rs_err").textContent=""; updateRestockFound();
+  $("restockModal").classList.add("show");
+  setTimeout(()=>{ try{ $("rs_code").focus(); }catch(e){} },120);
+}
+function closeRestock(){ $("restockModal").classList.remove("show"); }
+function updateRestockFound(){
+  const f=$("rs_found"); const code=$("rs_code").value.trim();
+  if(!code){ f.textContent=""; f.classList.remove("bad"); return; }
+  const p=findProduct(code);
+  if(p){ f.textContent=p.name+" · estoque atual: "+p.qty+" un"; f.classList.remove("bad"); }
+  else{ f.textContent="Código não cadastrado"; f.classList.add("bad"); }
+}
+function confirmRestock(){
+  const err=$("rs_err");
+  const code=$("rs_code").value.trim();
+  const add=parseInt($("rs_qty").value,10);
+  const p=findProduct(code);
+  if(!p){ err.textContent="Produto não encontrado. Cadastro de novos produtos é feito pela gerência."; return; }
+  if(isNaN(add)||add<=0){ err.textContent="Informe uma quantidade válida (maior que zero)."; return; }
+  p.qty+=add;
+  saveProducts();
+  closeRestock();
+  setStatus("Estoque atualizado: "+p.name+" (+"+add+")","ok"); beep("ok");
+  toast("✓ +"+add+" em "+p.name,"ok");
 }
 
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
@@ -1172,6 +1360,27 @@ function wire(){
   // gerência: tabs
   $("tabEstoque").addEventListener("click", ()=>switchTab("estoque"));
   $("tabVendas").addEventListener("click", ()=>switchTab("vendas"));
+  $("tabUsuarios").addEventListener("click", ()=>switchTab("usuarios"));
+
+  // gerência: cadastro de usuários e permissões
+  $("addUserBtn").addEventListener("click", addUser);
+  $("nu_role").addEventListener("change", syncRolePerm);
+  $("nu_pass").addEventListener("keydown", e=>{ if(e.key==="Enter") addUser(); });
+  $("userList").addEventListener("change", e=>{
+    const cb=e.target.closest("[data-act='togglestock']"); if(!cb) return;
+    const row=cb.closest(".urow"); toggleUserStock(row.dataset.username, cb.checked);
+  });
+  $("userList").addEventListener("click", e=>{
+    const b=e.target.closest("[data-act='deluser']"); if(!b) return;
+    const row=b.closest(".urow"); deleteUser(row.dataset.username);
+  });
+
+  // caixa: adicionar ao estoque (operador autorizado)
+  $("restockBtn").addEventListener("click", openRestock);
+  $("rs_code").addEventListener("input", updateRestockFound);
+  $("rsClose").addEventListener("click", closeRestock);
+  $("rsConfirm").addEventListener("click", confirmRestock);
+  $("restockModal").addEventListener("click", e=>{ if(e.target.id==="restockModal") closeRestock(); });
 
   // gerência: editar estoque (delegação no change)
   $("prodList").addEventListener("change", e=>{
@@ -1260,7 +1469,7 @@ function wire(){
   document.addEventListener("keydown", e=>{
     if(e.key!=="Escape") return;
     if($("confirmModal").classList.contains("show")){ closeConfirm(); return; }
-    ["payModal","receiptModal","manualModal"].forEach(id=>{ const m=$(id); if(m && m.classList.contains("show")) m.classList.remove("show"); });
+    ["payModal","receiptModal","manualModal","restockModal"].forEach(id=>{ const m=$(id); if(m && m.classList.contains("show")) m.classList.remove("show"); });
   });
 
   // bloqueia gestos/zoom residuais
@@ -1269,12 +1478,15 @@ function wire(){
 }
 
 function switchTab(which){
-  const est=which==="estoque";
-  $("tabEstoque").classList.toggle("active",est);
-  $("tabVendas").classList.toggle("active",!est);
-  $("panelEstoque").classList.toggle("is-active",est);
-  $("panelVendas").classList.toggle("is-active",!est);
-  if(!est) renderSales(); else renderStock();
+  $("tabEstoque").classList.toggle("active",which==="estoque");
+  $("tabVendas").classList.toggle("active",which==="vendas");
+  $("tabUsuarios").classList.toggle("active",which==="usuarios");
+  $("panelEstoque").classList.toggle("is-active",which==="estoque");
+  $("panelVendas").classList.toggle("is-active",which==="vendas");
+  $("panelUsuarios").classList.toggle("is-active",which==="usuarios");
+  if(which==="estoque") renderStock();
+  else if(which==="vendas") renderSales();
+  else renderUsers();
   renderCards();
 }
 

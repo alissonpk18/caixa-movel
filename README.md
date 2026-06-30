@@ -18,6 +18,11 @@ barras pela câmera, controle de estoque e relatórios de vendas. Funciona como
     com **busca** e **alerta de estoque baixo configurável**.
   - Vendas: **histórico com filtro por data**, totais do período e
     **exportação para CSV**.
+  - Usuários: **cadastrar caixas e gerentes**, definir login/senha e conceder a
+    **permissão de adicionar itens ao estoque** a cada caixa (com remoção de
+    usuários e travas para não excluir a si mesmo nem o último gerente).
+- **Reposição pelo caixa**: o operador com a permissão liberada ganha o botão
+  **"+Estoque"** para lançar entradas de mercadoria em produtos já cadastrados.
 - **Persistência**: `localStorage` (ou `window.storage` em ambiente de artifact);
   cai para memória apenas se nenhum estiver disponível (com aviso na tela).
 - **Sessão persistente** e **sincronização entre abas**.
