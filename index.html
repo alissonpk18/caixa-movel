@@ -396,6 +396,15 @@
   .sheet .found.bad{color:var(--bad)}
   .sheet .err{color:var(--bad);font-size:12.5px;font-weight:700;min-height:16px;margin:0 2px 8px}
 
+  /* Selo de versão — canto inferior direito, discreto. Permite confirmar
+     visualmente quando uma nova versão foi carregada (cache atualizado). */
+  #verBadge{
+    position:fixed;z-index:90;right:6px;bottom:calc(4px + var(--safe-b));
+    font-family:var(--mono);font-size:10px;line-height:1;font-weight:700;
+    color:#fff;background:rgba(20,24,31,.55);padding:3px 6px;border-radius:7px;
+    pointer-events:none;letter-spacing:.3px;
+  }
+
   @media (prefers-reduced-motion: reduce){
     *{animation:none!important;transition:none!important}
   }
@@ -643,6 +652,7 @@
   </div>
 
   <div id="toast" role="status" aria-live="assertive"></div>
+  <div id="verBadge" aria-hidden="true"></div>
 </div>
 
 <script>
@@ -653,8 +663,13 @@
    disponível; senão, roda em memória só nesta sessão (com aviso).
    ================================================================ */
 
+/* Versão do app — mantenha em sincronia com CACHE do sw.js.
+   Aparece no canto inferior direito para confirmar visualmente a atualização. */
+const APP_VERSION = "v6";
+
 /* ---------- helpers ---------- */
 const $ = (id) => document.getElementById(id);
+(function(){ const b=document.getElementById("verBadge"); if(b) b.textContent=APP_VERSION; })();
 const money = (v) => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
 /* aceita "1.234,56", "5,49", "5.49" → número. Vírgula = decimal (padrão BR). */
 function parseMoney(str){
@@ -825,11 +840,17 @@ function logout(){
 function startScanner(){
   const fb=$("scanFallback");
   if(typeof Html5Qrcode==="undefined"){
-    $("fallbackMsg").textContent="Leitor de câmera não carregou. Digite o código manualmente.";
+    $("fallbackMsg").textContent="Leitor de câmera não carregou. Verifique a conexão e toque em “Tentar câmera”, ou digite o código.";
     fb.classList.add("show"); state.scanReady=false; return;
+  }
+  // Câmera exige contexto seguro (HTTPS ou localhost). Sem isso, o navegador nem abre a câmera.
+  if(!window.isSecureContext || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){
+    showFallback("A câmera só funciona em HTTPS (cadeado) ou em localhost. Abra o app por um endereço https:// ou digite o código.");
+    return;
   }
   fb.classList.remove("show");
   if(state.scanner && state.scanReady) return;
+  setStatus("Abrindo câmera…");
 
   const fmts = window.Html5QrcodeSupportedFormats ? [
     Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
@@ -857,10 +878,14 @@ function startScanner(){
     },
     onScan,
     ()=>{}
-  ).then(()=>{ state.scanReady=true; setupTorch(); })
+  ).then(()=>{ state.scanReady=true; setStatus("Pronto para ler"); setupTorch(); })
    .catch(err=>{
-     const denied = (""+err).toLowerCase().includes("permission") || (""+err).toLowerCase().includes("notallowed");
-     showFallback(denied ? "Permissão de câmera negada. Digite o código manualmente." : "Câmera indisponível. Digite o código manualmente.");
+     const e=(""+err).toLowerCase();
+     let msg="Câmera indisponível. Digite o código manualmente.";
+     if(e.includes("permission")||e.includes("notallowed")) msg="Permissão de câmera negada. Toque em “Tentar câmera” e permita o acesso, ou digite o código.";
+     else if(e.includes("notfound")||e.includes("devicesnotfound")||e.includes("overconstrained")) msg="Nenhuma câmera encontrada neste aparelho. Digite o código manualmente.";
+     else if(e.includes("notreadable")||e.includes("trackstart")||e.includes("inuse")) msg="A câmera está em uso por outro app. Feche os outros apps e toque em “Tentar câmera”.";
+     showFallback(msg);
    });
 }
 
@@ -900,6 +925,29 @@ function stopScanner(){
   state.scanReady=false;
   state.torch=null; state.torchOn=false;
   const tb=$("torchBtn"); if(tb){ tb.classList.remove("on"); tb.style.display="none"; }
+}
+
+/* "Tentar câmera": para e limpa o leitor anterior antes de reiniciar.
+   Sem isso, o #reader fica com restos da tentativa anterior e o novo leitor falha. */
+function retryScanner(){
+  setStatus("Abrindo câmera…");
+  const finish=()=>{
+    state.scanner=null;
+    const r=$("reader"); if(r) r.innerHTML="";  // remove vídeo/canvas residual
+    state.scanReady=false;
+    startScanner();
+  };
+  if(state.scanner){
+    try{
+      const stopP = state.scanReady ? state.scanner.stop() : Promise.resolve();
+      Promise.resolve(stopP)
+        .then(()=>{ try{ state.scanner.clear(); }catch(e){} })
+        .catch(()=>{})
+        .then(finish);
+    }catch(e){ finish(); }
+  }else{
+    finish();
+  }
 }
 function onScan(code){
   const now=Date.now();
@@ -1380,7 +1428,7 @@ function wire(){
   });
 
   // câmera fallback
-  $("retryCam").addEventListener("click", ()=>{ state.scanner=null; startScanner(); });
+  $("retryCam").addEventListener("click", retryScanner);
   $("manualBtn2").addEventListener("click", openManual);
 
   // flash / lanterna
