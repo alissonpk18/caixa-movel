@@ -4,10 +4,21 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#14181F" />
+<meta name="description" content="Ponto de venda mobile com leitor de código de barras, controle de estoque e relatórios." />
 <title>PDV · Caixa Rápido</title>
 
-<!-- Leitor de código de barras (câmera). Se não carregar, o app cai no teclado manual automaticamente. -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<!-- PWA: instalável e offline -->
+<link rel="manifest" href="./manifest.webmanifest" />
+<link rel="apple-touch-icon" href="./icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="PDV Caixa" />
+
+<!-- Leitor de código de barras (câmera). Carregado do CDN com verificação de integridade (SRI).
+     Se não carregar, o app cai no teclado manual automaticamente. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"
+        integrity="sha384-c9d8RFSL+u3exBOJ4Yp3HUJXS4znl9f+z66d1y54ig+ea249SpqR+w1wyvXz/lk+"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
 <style>
   /* ============================================================
@@ -384,7 +395,7 @@
     <div class="topbar">
       <div class="who" id="opName">Caixa<small>Operador</small></div>
       <div class="grow"></div>
-      <button class="iconbtn" id="muteBtn" title="Som">🔊</button>
+      <button class="iconbtn" id="muteBtn" title="Som" aria-label="Ativar ou silenciar o som">🔊</button>
       <button class="iconbtn" id="logoutOp">Sair</button>
     </div>
     <div id="storageBanner"></div>
@@ -403,7 +414,7 @@
       </div>
     </div>
 
-    <div id="statusStrip"><span class="dot"></span><span id="statusText">Pronto para ler</span></div>
+    <div id="statusStrip" role="status" aria-live="polite"><span class="dot"></span><span id="statusText">Pronto para ler</span></div>
 
     <div class="cart" id="cartScroll">
       <div class="cart-empty" id="cartEmpty">
@@ -481,9 +492,9 @@
   </section>
 
   <!-- ============ TECLADO MANUAL ============ -->
-  <div class="modal" id="manualModal">
+  <div class="modal" id="manualModal" role="dialog" aria-modal="true" aria-labelledby="manualTitle">
     <div class="sheet">
-      <h3>Digitar código</h3>
+      <h3 id="manualTitle">Digitar código</h3>
       <p class="sub">Use quando o código não for lido pela câmera.</p>
       <div id="manualDisplay" class="empty">código do produto</div>
       <div class="keypad" id="keypad">
@@ -500,9 +511,9 @@
   </div>
 
   <!-- ============ PAGAMENTO ============ -->
-  <div class="modal" id="payModal">
+  <div class="modal" id="payModal" role="dialog" aria-modal="true" aria-labelledby="payTitle">
     <div class="sheet">
-      <h3>Pagamento</h3>
+      <h3 id="payTitle">Pagamento</h3>
       <p class="sub">Total a receber</p>
       <div class="pay-total" id="payTotal">R$ 0,00</div>
       <div class="pay-methods" id="payMethods">
@@ -523,9 +534,9 @@
   </div>
 
   <!-- ============ COMPROVANTE ============ -->
-  <div class="modal" id="receiptModal">
+  <div class="modal" id="receiptModal" role="dialog" aria-modal="true" aria-labelledby="receiptTitle">
     <div class="sheet">
-      <h3>Comprovante</h3>
+      <h3 id="receiptTitle">Comprovante</h3>
       <p class="sub">Venda registrada com sucesso.</p>
       <div class="receipt" id="receiptBox"></div>
       <div class="mactions">
@@ -536,7 +547,7 @@
   </div>
 
   <!-- ============ CONFIRMAÇÃO ============ -->
-  <div class="modal" id="confirmModal">
+  <div class="modal" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
     <div class="sheet">
       <h3 id="confirmTitle">Confirmar</h3>
       <p class="sub" id="confirmMsg"></p>
@@ -547,7 +558,7 @@
     </div>
   </div>
 
-  <div id="toast"></div>
+  <div id="toast" role="status" aria-live="assertive"></div>
 </div>
 
 <script>
@@ -561,6 +572,13 @@
 /* ---------- helpers ---------- */
 const $ = (id) => document.getElementById(id);
 const money = (v) => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
+/* aceita "1.234,56", "5,49", "5.49" → número. Vírgula = decimal (padrão BR). */
+function parseMoney(str){
+  let s = String(str==null?"":str).trim();
+  if(!s) return NaN;
+  if(s.indexOf(",")>-1) s = s.replace(/\./g,"").replace(",",".");
+  return parseFloat(s);
+}
 const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "id-"+Date.now()+"-"+Math.random().toString(16).slice(2);
 const todayKey = (d=new Date()) => d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -634,7 +652,7 @@ async function boot(){
 
 /* ---------- som (beep curto) ---------- */
 function initAudio(){
-  if(state.audio || reduceMotion) return;
+  if(state.audio) return; // o beep é informação, não animação — independe de reduced-motion
   try{ state.audio = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ state.audio=null; }
 }
 function beep(type){
@@ -874,14 +892,14 @@ function selectMethod(m){
   $("payCashWrap").style.display = m==="dinheiro" ? "block" : "none";
 }
 function updateChange(){
-  const rec=parseFloat(($("payReceived").value||"").replace(",","."))||0;
+  const rec=parseMoney($("payReceived").value)||0;
   $("payChange").textContent=money(Math.max(0, rec-cartTotal()));
 }
 function confirmPay(){
   const total=cartTotal();
   let received=total, change=0;
   if(state.pay.method==="dinheiro"){
-    received=parseFloat(($("payReceived").value||"").replace(",","."))||0;
+    received=parseMoney($("payReceived").value)||0;
     if(received < total){ toast("Valor recebido menor que o total","bad"); beep("bad"); return; }
     change=received-total;
   }
@@ -1056,7 +1074,7 @@ async function reloadFromStorage(){
 function addProduct(){
   const code=$("np_code").value.trim();
   const name=$("np_name").value.trim();
-  const price=parseFloat(($("np_price").value||"").replace(",","."));
+  const price=parseMoney($("np_price").value);
   const qty=parseInt($("np_qty").value,10);
   const err=$("np_err");
 
@@ -1164,7 +1182,7 @@ function wire(){
       const v=inp.value.trim(); if(!v){ inp.value=p.name; return; }
       p.name=v; inp.value=v;
     }else if(inp.dataset.f==="price"){
-      const v=parseFloat((inp.value||"").replace(",",".")); if(isNaN(v)||v<0){ inp.value=p.price.toFixed(2); return; }
+      const v=parseMoney(inp.value); if(isNaN(v)||v<0){ inp.value=p.price.toFixed(2); return; }
       p.price=v; inp.value=v.toFixed(2);
     }else{
       const v=parseInt(inp.value,10); if(isNaN(v)||v<0){ inp.value=p.qty; return; }
@@ -1238,6 +1256,13 @@ function wire(){
   $("confirmNo").addEventListener("click", closeConfirm);
   $("confirmModal").addEventListener("click", e=>{ if(e.target.id==="confirmModal") closeConfirm(); });
 
+  // Esc fecha qualquer modal aberto (acessibilidade)
+  document.addEventListener("keydown", e=>{
+    if(e.key!=="Escape") return;
+    if($("confirmModal").classList.contains("show")){ closeConfirm(); return; }
+    ["payModal","receiptModal","manualModal"].forEach(id=>{ const m=$(id); if(m && m.classList.contains("show")) m.classList.remove("show"); });
+  });
+
   // bloqueia gestos/zoom residuais
   document.addEventListener("gesturestart", e=>e.preventDefault());
   document.addEventListener("dblclick", e=>e.preventDefault(), {passive:false});
@@ -1251,6 +1276,11 @@ function switchTab(which){
   $("panelVendas").classList.toggle("is-active",!est);
   if(!est) renderSales(); else renderStock();
   renderCards();
+}
+
+/* ---------- service worker (PWA: instalável e offline) ---------- */
+if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){
+  window.addEventListener("load", ()=>{ navigator.serviceWorker.register("./sw.js").catch(()=>{}); });
 }
 
 /* ---------- start ---------- */
