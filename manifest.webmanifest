@@ -1,0 +1,17 @@
+{
+  "name": "PDV · Caixa Rápido",
+  "short_name": "PDV Caixa",
+  "description": "Ponto de venda mobile com leitor de código de barras, controle de estoque e relatórios.",
+  "start_url": "./pdv-mobile.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14181F",
+  "theme_color": "#14181F",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

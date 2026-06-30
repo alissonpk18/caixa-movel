@@ -4,10 +4,21 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#14181F" />
+<meta name="description" content="Ponto de venda mobile com leitor de código de barras, controle de estoque e relatórios." />
 <title>PDV · Caixa Rápido</title>
 
-<!-- Leitor de código de barras (câmera). Se não carregar, o app cai no teclado manual automaticamente. -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<!-- PWA: instalável e offline -->
+<link rel="manifest" href="./manifest.webmanifest" />
+<link rel="apple-touch-icon" href="./icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="PDV Caixa" />
+
+<!-- Leitor de código de barras (câmera). Carregado do CDN com verificação de integridade (SRI).
+     Se não carregar, o app cai no teclado manual automaticamente. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"
+        integrity="sha384-c9d8RFSL+u3exBOJ4Yp3HUJXS4znl9f+z66d1y54ig+ea249SpqR+w1wyvXz/lk+"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
 <style>
   /* ============================================================
@@ -290,6 +301,61 @@
   #toast.ok{background:var(--ok)}
   #toast.bad{background:var(--bad)}
 
+  /* ============================================================
+     PAGAMENTO + COMPROVANTE (Fase 2)
+     ============================================================ */
+  .pay-total{font-family:var(--mono);font-size:34px;font-weight:800;text-align:center;margin:2px 0 14px;letter-spacing:-1px}
+  .pay-methods{display:flex;gap:8px;margin-bottom:14px}
+  .pay-methods button{flex:1;min-height:48px;border-radius:12px;background:var(--bg);font-weight:700;font-size:14px;color:var(--muted);border:1.5px solid var(--line)}
+  .pay-methods button.active{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .pay-cash label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin:0 0 6px 2px}
+  .pay-cash input{width:100%;height:var(--tap);border:1.5px solid var(--line);border-radius:14px;padding:0 16px;
+    font-family:var(--mono);font-weight:800;font-size:20px;background:#fff}
+  .pay-cash input:focus{outline:none;border-color:var(--brand)}
+  .pay-change{margin-top:10px;text-align:right;font-size:14px;color:var(--muted)}
+  .pay-change b{font-family:var(--mono);font-size:18px;color:var(--ink)}
+
+  .receipt{background:#fff;border:1px dashed var(--line);border-radius:14px;padding:16px;margin-bottom:14px;
+    font-family:var(--mono);font-size:13px;max-height:50vh;overflow-y:auto}
+  .receipt .r-head{text-align:center;margin-bottom:10px}
+  .receipt .r-title{font-weight:800;font-size:15px;font-family:var(--sans)}
+  .receipt .r-sub{font-size:11.5px;color:var(--muted)}
+  .receipt .r-it{display:flex;justify-content:space-between;padding:2px 0;gap:8px}
+  .receipt .r-it span:first-child{font-family:var(--sans)}
+  .receipt .r-total{display:flex;justify-content:space-between;font-weight:800;font-size:16px;
+    border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);padding:8px 0;margin:8px 0}
+  .receipt .r-pay{margin-top:6px}
+  .receipt .r-foot{text-align:center;margin-top:12px;color:var(--muted);font-size:11.5px}
+
+  /* estoque: nome editável + excluir produto */
+  .prow .top{align-items:center}
+  .prow .pname-input{flex:1;min-width:0;font-weight:700;font-size:14.5px;border:1.5px solid transparent;
+    border-radius:8px;padding:6px 8px;background:transparent;color:var(--ink)}
+  .prow .pname-input:focus{outline:none;border-color:var(--brand);background:#fff}
+  .prow-del{width:34px;height:34px;flex:0 0 auto;color:var(--bad);font-size:16px;border-radius:9px;
+    background:var(--bad-bg);display:grid;place-items:center;font-weight:700}
+  .prow .code-line{font-size:11.5px;color:var(--muted);font-family:var(--mono);margin:2px 2px 0}
+
+  /* ============================================================
+     FILTROS / RELATÓRIOS / BUSCA (Fase 3)
+     ============================================================ */
+  .sales-filter{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center}
+  .sales-filter input[type=date]{flex:1;min-width:130px;height:46px;border:1.5px solid var(--line);
+    border-radius:11px;padding:0 12px;background:#fff;font-family:var(--mono)}
+  .sales-filter .btn{flex:0 0 auto;width:auto;padding:0 14px;min-height:46px;font-size:13px}
+  .sales-summary{margin-bottom:10px}
+  .sales-summary .ss-row{display:flex;justify-content:space-between;align-items:center;background:var(--surface);
+    border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:13px;color:var(--muted)}
+  .sales-summary .ss-row b{font-family:var(--mono);font-size:18px;color:var(--ok)}
+
+  .prod-search{width:100%;height:46px;border:1.5px solid var(--line);border-radius:11px;padding:0 12px;
+    background:#fff;margin-bottom:10px}
+  .prod-search:focus{outline:none;border-color:var(--brand)}
+  .lowcfg{font-size:12.5px;color:var(--muted);margin:0 2px 12px;font-weight:600;display:flex;align-items:center;gap:2px}
+  .lowcfg input{width:54px;height:34px;border:1.5px solid var(--line);border-radius:8px;text-align:center;
+    font-family:var(--mono);font-weight:700;margin:0 4px;background:#fff}
+  .lowcfg input:focus{outline:none;border-color:var(--brand)}
+
   @media (prefers-reduced-motion: reduce){
     *{animation:none!important;transition:none!important}
   }
@@ -329,7 +395,7 @@
     <div class="topbar">
       <div class="who" id="opName">Caixa<small>Operador</small></div>
       <div class="grow"></div>
-      <button class="iconbtn" id="muteBtn" title="Som">🔊</button>
+      <button class="iconbtn" id="muteBtn" title="Som" aria-label="Ativar ou silenciar o som">🔊</button>
       <button class="iconbtn" id="logoutOp">Sair</button>
     </div>
     <div id="storageBanner"></div>
@@ -348,7 +414,7 @@
       </div>
     </div>
 
-    <div id="statusStrip"><span class="dot"></span><span id="statusText">Pronto para ler</span></div>
+    <div id="statusStrip" role="status" aria-live="polite"><span class="dot"></span><span id="statusText">Pronto para ler</span></div>
 
     <div class="cart" id="cartScroll">
       <div class="cart-empty" id="cartEmpty">
@@ -406,21 +472,29 @@
         </div>
 
         <div class="sectitle">Produtos no estoque</div>
+        <div class="lowcfg">Alerta de estoque baixo em ≤ <input id="lowThreshold" type="tel" inputmode="numeric" value="5" /> un</div>
+        <input id="prodSearch" class="prod-search" type="search" placeholder="Buscar por nome ou código" />
         <div id="prodList"></div>
       </div>
 
       <!-- VENDAS -->
       <div class="panel" id="panelVendas">
-        <div class="sectitle">Vendas do dia</div>
+        <div class="sectitle">Vendas</div>
+        <div class="sales-filter">
+          <input type="date" id="salesDate" />
+          <button class="btn btn-ghost" id="salesAll">Todas</button>
+          <button class="btn btn-ghost" id="exportCsv">Exportar CSV</button>
+        </div>
+        <div class="sales-summary" id="salesSummary"></div>
         <div id="salesList"></div>
       </div>
     </div>
   </section>
 
   <!-- ============ TECLADO MANUAL ============ -->
-  <div class="modal" id="manualModal">
+  <div class="modal" id="manualModal" role="dialog" aria-modal="true" aria-labelledby="manualTitle">
     <div class="sheet">
-      <h3>Digitar código</h3>
+      <h3 id="manualTitle">Digitar código</h3>
       <p class="sub">Use quando o código não for lido pela câmera.</p>
       <div id="manualDisplay" class="empty">código do produto</div>
       <div class="keypad" id="keypad">
@@ -436,7 +510,55 @@
     </div>
   </div>
 
-  <div id="toast"></div>
+  <!-- ============ PAGAMENTO ============ -->
+  <div class="modal" id="payModal" role="dialog" aria-modal="true" aria-labelledby="payTitle">
+    <div class="sheet">
+      <h3 id="payTitle">Pagamento</h3>
+      <p class="sub">Total a receber</p>
+      <div class="pay-total" id="payTotal">R$ 0,00</div>
+      <div class="pay-methods" id="payMethods">
+        <button data-m="dinheiro" class="active">Dinheiro</button>
+        <button data-m="cartao">Cartão</button>
+        <button data-m="pix">Pix</button>
+      </div>
+      <div class="pay-cash" id="payCashWrap">
+        <label for="payReceived">Valor recebido (R$)</label>
+        <input id="payReceived" type="tel" inputmode="decimal" placeholder="0,00" />
+        <div class="pay-change">Troco: <b id="payChange">R$ 0,00</b></div>
+      </div>
+      <div class="mactions">
+        <button class="btn btn-ghost" id="payClose">Voltar</button>
+        <button class="btn btn-ok" id="payConfirm">Confirmar pagamento</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ COMPROVANTE ============ -->
+  <div class="modal" id="receiptModal" role="dialog" aria-modal="true" aria-labelledby="receiptTitle">
+    <div class="sheet">
+      <h3 id="receiptTitle">Comprovante</h3>
+      <p class="sub">Venda registrada com sucesso.</p>
+      <div class="receipt" id="receiptBox"></div>
+      <div class="mactions">
+        <button class="btn btn-ghost" id="receiptClose">Fechar</button>
+        <button class="btn btn-primary" id="receiptPrint">Imprimir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CONFIRMAÇÃO ============ -->
+  <div class="modal" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <div class="sheet">
+      <h3 id="confirmTitle">Confirmar</h3>
+      <p class="sub" id="confirmMsg"></p>
+      <div class="mactions">
+        <button class="btn btn-ghost" id="confirmNo">Voltar</button>
+        <button class="btn btn-bad" id="confirmYes">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="assertive"></div>
 </div>
 
 <script>
@@ -450,16 +572,30 @@
 /* ---------- helpers ---------- */
 const $ = (id) => document.getElementById(id);
 const money = (v) => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
+/* aceita "1.234,56", "5,49", "5.49" → número. Vírgula = decimal (padrão BR). */
+function parseMoney(str){
+  let s = String(str==null?"":str).trim();
+  if(!s) return NaN;
+  if(s.indexOf(",")>-1) s = s.replace(/\./g,"").replace(",",".");
+  return parseFloat(s);
+}
 const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "id-"+Date.now()+"-"+Math.random().toString(16).slice(2);
 const todayKey = (d=new Date()) => d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/* ---------- camada de dados ---------- */
-const hasStorage = typeof window.storage !== "undefined" && window.storage && typeof window.storage.get === "function";
-let storageOK = hasStorage;
+/* ---------- camada de dados ----------
+   Persistência em camadas: 1) window.storage (artifact) →
+   2) localStorage (navegador) → 3) memória (só nesta sessão, com aviso). */
+const hasArtifactStorage = typeof window.storage !== "undefined" && window.storage && typeof window.storage.get === "function";
+let hasLocalStorage = false;
+try{ const k="__pdv_test__"; window.localStorage.setItem(k,"1"); window.localStorage.removeItem(k); hasLocalStorage=true; }catch(e){ hasLocalStorage=false; }
+let storageOK = hasArtifactStorage || hasLocalStorage;
 
 const DB = { users:[], products:[], sales:[] };
-let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, lastScan:{code:"",t:0}, audio:null };
+let settings = { lowStock:5 };
+let salesFilter = todayKey();   // chave de data selecionada; null = todas
+let prodQuery = "";
+let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, lastScan:{code:"",t:0}, audio:null, pay:{method:"dinheiro"} };
 
 const SEED_USERS = [
   { username:"gerente", password:"1234", role:"gerente", name:"Gerência" },
@@ -477,37 +613,46 @@ const SEED_PRODUCTS = [
 ];
 
 async function sget(key){
-  try{ const r = await window.storage.get(key); return r ? JSON.parse(r.value) : null; }
-  catch(e){ return null; }
+  try{
+    if(hasArtifactStorage){ const r = await window.storage.get(key); return r ? JSON.parse(r.value) : null; }
+    if(hasLocalStorage){ const v = window.localStorage.getItem(key); return v ? JSON.parse(v) : null; }
+    return null;
+  }catch(e){ return null; }
 }
 async function sset(key,val){
-  if(!hasStorage){ storageOK=false; return false; }
-  try{ const ok = await window.storage.set(key, JSON.stringify(val)); if(!ok){storageOK=false;} return !!ok; }
-  catch(e){ storageOK=false; return false; }
+  try{
+    if(hasArtifactStorage){ const ok = await window.storage.set(key, JSON.stringify(val)); if(!ok){storageOK=false;} return !!ok; }
+    if(hasLocalStorage){ window.localStorage.setItem(key, JSON.stringify(val)); return true; }
+    storageOK=false; return false;
+  }catch(e){ storageOK=false; return false; }
 }
 const saveProducts = () => sset("pdv:products", DB.products);
 const saveSales    = () => sset("pdv:sales", DB.sales);
+const saveSession  = () => sset("pdv:session", state.user ? {username:state.user.username, role:state.user.role, name:state.user.name} : null);
 
 async function boot(){
-  if(hasStorage){
+  if(hasArtifactStorage || hasLocalStorage){
     DB.users    = await sget("pdv:users");
     DB.products = await sget("pdv:products");
     DB.sales    = await sget("pdv:sales");
+    const st    = await sget("pdv:settings");
+    if(st && typeof st.lowStock==="number") settings=st;
   }
   if(!Array.isArray(DB.users)   || !DB.users.length){ DB.users = SEED_USERS;       await sset("pdv:users", DB.users); }
   if(!Array.isArray(DB.products)){ DB.products = SEED_PRODUCTS.map(p=>({...p}));    await saveProducts(); }
   if(!Array.isArray(DB.sales)){ DB.sales = [];                                     await saveSales(); }
 
   if(!storageOK){
-    const txt = "⚠ Salvando só nesta sessão (armazenamento indisponível no preview)";
+    const txt = "⚠ Salvando só nesta sessão (armazenamento indisponível)";
     [$("storageBanner"),$("storageBanner2")].forEach(b=>{ if(b){b.textContent=txt;b.classList.add("show");} });
   }
   wire();
+  await restoreSession();
 }
 
 /* ---------- som (beep curto) ---------- */
 function initAudio(){
-  if(state.audio || reduceMotion) return;
+  if(state.audio) return; // o beep é informação, não animação — independe de reduced-motion
   try{ state.audio = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ state.audio=null; }
 }
 function beep(type){
@@ -545,6 +690,20 @@ function show(screenId){
   document.querySelectorAll(".screen").forEach(s=>s.classList.toggle("is-active", s.id===screenId));
 }
 
+function enterApp(found){
+  state.user=found;
+  initAudio();
+  saveSession();
+  if(found.role==="gerente"){
+    $("gerName").innerHTML = "Gerência<small>"+escapeHtml(found.name||"")+"</small>";
+    show("gerente"); renderManager();
+  }else{
+    $("opName").innerHTML = escapeHtml(found.name||"Caixa")+"<small>Operador</small>";
+    clearCart();
+    show("operador"); startScanner();
+  }
+}
+
 function login(){
   const u=$("loginUser").value.trim().toLowerCase();
   const p=$("loginPass").value;
@@ -552,22 +711,22 @@ function login(){
   if(!found){ $("loginErr").textContent="Usuário ou senha incorretos."; beep("bad"); return; }
   $("loginErr").textContent="";
   $("loginPass").value="";
-  state.user=found;
-  initAudio();
+  enterApp(found);
+}
 
-  if(found.role==="gerente"){
-    $("gerName").innerHTML = "Gerência<small>"+found.name+"</small>";
-    show("gerente"); renderManager();
-  }else{
-    $("opName").innerHTML = (found.name||"Caixa")+"<small>Operador</small>";
-    clearCart();
-    show("operador"); startScanner();
-  }
+async function restoreSession(){
+  const sess = await sget("pdv:session");
+  if(!sess || !sess.username) return false;
+  const found = DB.users.find(x=>x.username===sess.username);
+  if(!found) return false;
+  enterApp(found);
+  return true;
 }
 
 function logout(){
   stopScanner();
   state.user=null; state.cart=[];
+  saveSession();
   $("loginUser").value=""; $("loginPass").value="";
   show("login");
 }
@@ -693,13 +852,14 @@ function renderCart(flash){
   }
 }
 
-function finalizeSale(){
-  if(!state.cart.length) return;
+function finalizeSale(payment){
+  if(!state.cart.length) return null;
   const sale={
     id:uid(), ts:new Date().toISOString(),
     operator: state.user ? state.user.name : "—",
     items: state.cart.map(i=>({code:i.code,name:i.name,price:i.price,qty:i.qty})),
-    total: cartTotal()
+    total: cartTotal(),
+    payment: payment || { method:"—", received:cartTotal(), change:0 }
   };
   // baixa de estoque
   state.cart.forEach(i=>{ const p=findProduct(i.code); if(p){ p.qty=Math.max(0,p.qty-i.qty); } });
@@ -710,18 +870,107 @@ function finalizeSale(){
   clearCart();
   setStatus("Venda registrada • "+money(v),"ok"); beep("ok");
   toast("✓ Venda registrada — "+money(v),"ok");
+  return sale;
+}
+
+/* ---------- pagamento + troco ---------- */
+const PAY_LABEL = { dinheiro:"Dinheiro", cartao:"Cartão", pix:"Pix" };
+function openPay(){
+  if(!state.cart.length) return;
+  state.pay={ method:"dinheiro" };
+  $("payTotal").textContent=money(cartTotal());
+  $("payMethods").querySelectorAll("button").forEach(b=>b.classList.toggle("active", b.dataset.m==="dinheiro"));
+  $("payReceived").value="";
+  $("payCashWrap").style.display="block";
+  updateChange();
+  $("payModal").classList.add("show");
+  setTimeout(()=>{ try{ $("payReceived").focus(); }catch(e){} },120);
+}
+function selectMethod(m){
+  state.pay.method=m;
+  $("payMethods").querySelectorAll("button").forEach(b=>b.classList.toggle("active", b.dataset.m===m));
+  $("payCashWrap").style.display = m==="dinheiro" ? "block" : "none";
+}
+function updateChange(){
+  const rec=parseMoney($("payReceived").value)||0;
+  $("payChange").textContent=money(Math.max(0, rec-cartTotal()));
+}
+function confirmPay(){
+  const total=cartTotal();
+  let received=total, change=0;
+  if(state.pay.method==="dinheiro"){
+    received=parseMoney($("payReceived").value)||0;
+    if(received < total){ toast("Valor recebido menor que o total","bad"); beep("bad"); return; }
+    change=received-total;
+  }
+  const sale=finalizeSale({ method:state.pay.method, received, change });
+  $("payModal").classList.remove("show");
+  if(sale) showReceipt(sale);
+}
+
+/* ---------- comprovante ---------- */
+function showReceipt(sale){
+  const t=new Date(sale.ts).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+  const pay=sale.payment||{method:"—"};
+  const methodLabel=PAY_LABEL[pay.method]||pay.method||"—";
+  const lines=sale.items.map(i=>`<div class="r-it"><span>${escapeHtml(i.name)} ×${i.qty}</span><span>${money(i.price*i.qty)}</span></div>`).join("");
+  let payExtra="";
+  if(pay.method==="dinheiro"){
+    payExtra=`<div class="r-it"><span>Recebido</span><span>${money(pay.received)}</span></div>`
+            +`<div class="r-it"><span>Troco</span><span>${money(pay.change)}</span></div>`;
+  }
+  $("receiptBox").innerHTML=`
+    <div class="r-head">
+      <div class="r-title">PDV · Caixa Rápido</div>
+      <div class="r-sub">${t}</div>
+      <div class="r-sub">Operador: ${escapeHtml(sale.operator)}</div>
+    </div>
+    <div class="r-items">${lines}</div>
+    <div class="r-total"><span>TOTAL</span><span>${money(sale.total)}</span></div>
+    <div class="r-pay"><div class="r-it"><span>Pagamento</span><span>${escapeHtml(methodLabel)}</span></div>${payExtra}</div>
+    <div class="r-foot">Obrigado pela preferência!</div>`;
+  $("receiptModal").classList.add("show");
+}
+function printReceipt(){
+  const html=$("receiptBox").innerHTML;
+  const w=window.open("","_blank","width=380,height=640");
+  if(!w){ toast("Permita pop-ups para imprimir","bad"); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Comprovante</title><style>
+    body{font-family:ui-monospace,Menlo,Consolas,monospace;padding:16px;color:#000;font-size:13px}
+    .r-head{text-align:center;margin-bottom:10px}.r-title{font-weight:800;font-size:15px;font-family:sans-serif}
+    .r-sub{font-size:11.5px;color:#444}
+    .r-it{display:flex;justify-content:space-between;padding:2px 0;gap:8px}
+    .r-it span:first-child{font-family:sans-serif}
+    .r-total{display:flex;justify-content:space-between;font-weight:800;font-size:16px;border-top:1px dashed #000;border-bottom:1px dashed #000;padding:8px 0;margin:8px 0}
+    .r-foot{text-align:center;margin-top:12px;font-size:11.5px;color:#444}
+  </style></head><body>${html}<script>window.onload=function(){window.print();}<\/script></body></html>`);
+  w.document.close();
 }
 
 function cancelSale(){
   if(!state.cart.length) return;
-  clearCart();
-  setStatus("Venda cancelada","bad");
+  askConfirm("Cancelar venda","Isso vai remover todos os itens da venda atual.",()=>{
+    clearCart();
+    setStatus("Venda cancelada","bad");
+  },"Cancelar venda");
 }
 
 /* ================================================================
    GERÊNCIA — cards, estoque, vendas
    ================================================================ */
-function renderManager(){ renderCards(); renderStock(); renderSales(); }
+function renderManager(){
+  if($("lowThreshold")) $("lowThreshold").value=settings.lowStock;
+  if($("salesDate")) $("salesDate").value = salesFilter ? keyToIso(salesFilter) : "";
+  renderCards(); renderStock(); renderSales();
+}
+
+/* converte entre a chave interna (2026-6-30) e o input date (2026-06-30) */
+function keyToIso(key){ const a=key.split("-"); return a[0]+"-"+String(a[1]).padStart(2,"0")+"-"+String(a[2]).padStart(2,"0"); }
+function isoToKey(iso){ const a=iso.split("-").map(Number); return a[0]+"-"+a[1]+"-"+a[2]; }
+function filteredSales(){
+  if(!salesFilter) return DB.sales.slice();
+  return DB.sales.filter(s=>todayKey(new Date(s.ts))===salesFilter);
+}
 
 function renderCards(){
   const tk=todayKey();
@@ -736,12 +985,16 @@ function renderCards(){
 function renderStock(){
   const el=$("prodList");
   if(!DB.products.length){ el.innerHTML='<div class="empty-list">Nenhum produto cadastrado.</div>'; return; }
-  el.innerHTML=DB.products.map(p=>`
-    <div class="prow ${p.qty<=5?"low":""}" data-code="${p.code}">
+  const q=prodQuery.trim().toLowerCase();
+  const list=q ? DB.products.filter(p=>p.name.toLowerCase().includes(q)||p.code.includes(q)) : DB.products;
+  if(!list.length){ el.innerHTML='<div class="empty-list">Nenhum produto encontrado.</div>'; return; }
+  el.innerHTML=list.map(p=>`
+    <div class="prow ${p.qty<=settings.lowStock?"low":""}" data-code="${p.code}">
       <div class="top">
-        <div class="pname">${escapeHtml(p.name)}</div>
-        <div class="stockbadge code">${p.qty} un · ${p.code}</div>
+        <input class="pname-input" type="text" data-f="name" value="${escapeHtml(p.name)}" />
+        <button class="prow-del" data-act="delprod" title="Excluir produto">✕</button>
       </div>
+      <div class="code-line stockbadge">${p.qty} un · ${p.code}</div>
       <div class="edits">
         <div class="e">
           <label>Preço (R$)</label>
@@ -758,15 +1011,23 @@ function renderStock(){
 
 function renderSales(){
   const el=$("salesList");
-  const tk=todayKey();
-  const today=DB.sales.filter(s=>todayKey(new Date(s.ts))===tk);
-  if(!today.length){ el.innerHTML='<div class="empty-list">Nenhuma venda registrada hoje.</div>'; return; }
-  el.innerHTML=today.map(s=>{
-    const t=new Date(s.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  const list=filteredSales();
+  const totalV=list.reduce((s,x)=>s+x.total,0);
+  const totalItems=list.reduce((s,x)=>s+x.items.reduce((a,i)=>a+i.qty,0),0);
+  if($("salesSummary")){
+    $("salesSummary").innerHTML=`<div class="ss-row"><span>${list.length} ${list.length===1?"venda":"vendas"} · ${totalItems} ${totalItems===1?"item":"itens"}</span><b>${money(totalV)}</b></div>`;
+  }
+  if(!list.length){ el.innerHTML='<div class="empty-list">Nenhuma venda no período.</div>'; return; }
+  const showDate=!salesFilter;
+  el.innerHTML=list.map(s=>{
+    const d=new Date(s.ts);
+    const t=d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+    const dd=showDate ? d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})+" " : "";
     const n=s.items.reduce((a,i)=>a+i.qty,0);
+    const payLabel=s.payment ? (PAY_LABEL[s.payment.method]||s.payment.method||"") : "";
     return `<div class="sale" data-id="${s.id}">
       <div class="head" data-toggle="${s.id}">
-        <div class="meta"><b>${t}</b> · ${n} ${n===1?"item":"itens"} · ${escapeHtml(s.operator)}</div>
+        <div class="meta"><b>${dd}${t}</b> · ${n} ${n===1?"item":"itens"} · ${escapeHtml(s.operator)}${payLabel?" · "+escapeHtml(payLabel):""}</div>
         <div class="amt">${money(s.total)}</div>
       </div>
       <div class="items">
@@ -776,10 +1037,44 @@ function renderSales(){
   }).join("");
 }
 
+/* ---------- exportar CSV ---------- */
+function csvCell(v){ const s=String(v); return /[";\r\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }
+function exportCsv(){
+  const list=filteredSales();
+  if(!list.length){ toast("Nada para exportar","bad"); return; }
+  const rows=[["Data/Hora","Operador","Pagamento","Produto","Codigo","Qtd","Preco Unit","Subtotal","Total Venda"]];
+  list.forEach(s=>{
+    const dt=new Date(s.ts).toLocaleString("pt-BR");
+    const pay=s.payment ? (PAY_LABEL[s.payment.method]||s.payment.method||"") : "";
+    s.items.forEach(i=>{
+      rows.push([dt,s.operator,pay,i.name,i.code,i.qty,i.price.toFixed(2),(i.price*i.qty).toFixed(2),s.total.toFixed(2)]);
+    });
+  });
+  const csv=rows.map(r=>r.map(csvCell).join(";")).join("\r\n");
+  const blob=new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url; a.download="vendas-"+(salesFilter?keyToIso(salesFilter):"todas")+".csv";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  toast("✓ CSV exportado","ok");
+}
+
+/* ---------- sincronização entre abas (cards ao vivo) ---------- */
+async function reloadFromStorage(){
+  if(hasArtifactStorage || hasLocalStorage){
+    const p=await sget("pdv:products"), s=await sget("pdv:sales"), st=await sget("pdv:settings");
+    if(Array.isArray(p)) DB.products=p;
+    if(Array.isArray(s)) DB.sales=s;
+    if(st && typeof st.lowStock==="number") settings=st;
+  }
+  if($("gerente").classList.contains("is-active")) renderManager();
+}
+
 function addProduct(){
   const code=$("np_code").value.trim();
   const name=$("np_name").value.trim();
-  const price=parseFloat(($("np_price").value||"").replace(",","."));
+  const price=parseMoney($("np_price").value);
   const qty=parseInt($("np_qty").value,10);
   const err=$("np_err");
 
@@ -798,6 +1093,19 @@ function addProduct(){
 }
 
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ================================================================
+   CONFIRMAÇÃO (sheet reutilizável)
+   ================================================================ */
+let confirmCb=null;
+function askConfirm(title,msg,onYes,yesLabel){
+  $("confirmTitle").textContent=title;
+  $("confirmMsg").textContent=msg;
+  $("confirmYes").textContent=yesLabel||"Confirmar";
+  confirmCb=onYes;
+  $("confirmModal").classList.add("show");
+}
+function closeConfirm(){ $("confirmModal").classList.remove("show"); confirmCb=null; }
 
 /* ================================================================
    TECLADO MANUAL
@@ -840,11 +1148,26 @@ function wire(){
     const code=b.dataset.code, act=b.dataset.act;
     if(act==="plus") changeQty(code,+1);
     else if(act==="minus") changeQty(code,-1);
-    else if(act==="del") removeItem(code);
+    else if(act==="del"){
+      const it=state.cart.find(i=>i.code===code);
+      askConfirm("Remover item","Remover "+(it?it.name:"este item")+" da venda?",()=>removeItem(code),"Remover");
+    }
   });
 
-  $("finalizeBtn").addEventListener("click", finalizeSale);
+  $("finalizeBtn").addEventListener("click", openPay);
   $("cancelBtn").addEventListener("click", cancelSale);
+
+  // pagamento
+  $("payMethods").addEventListener("click", e=>{ const b=e.target.closest("button"); if(b) selectMethod(b.dataset.m); });
+  $("payReceived").addEventListener("input", updateChange);
+  $("payClose").addEventListener("click", ()=>$("payModal").classList.remove("show"));
+  $("payConfirm").addEventListener("click", confirmPay);
+  $("payModal").addEventListener("click", e=>{ if(e.target.id==="payModal") $("payModal").classList.remove("show"); });
+
+  // comprovante
+  $("receiptClose").addEventListener("click", ()=>$("receiptModal").classList.remove("show"));
+  $("receiptPrint").addEventListener("click", printReceipt);
+  $("receiptModal").addEventListener("click", e=>{ if(e.target.id==="receiptModal") $("receiptModal").classList.remove("show"); });
 
   // gerência: tabs
   $("tabEstoque").addEventListener("click", ()=>switchTab("estoque"));
@@ -855,20 +1178,55 @@ function wire(){
     const inp=e.target.closest("input"); if(!inp) return;
     const row=inp.closest(".prow"); const code=row.dataset.code;
     const p=findProduct(code); if(!p) return;
-    if(inp.dataset.f==="price"){
-      const v=parseFloat((inp.value||"").replace(",",".")); if(isNaN(v)||v<0){ inp.value=p.price.toFixed(2); return; }
+    if(inp.dataset.f==="name"){
+      const v=inp.value.trim(); if(!v){ inp.value=p.name; return; }
+      p.name=v; inp.value=v;
+    }else if(inp.dataset.f==="price"){
+      const v=parseMoney(inp.value); if(isNaN(v)||v<0){ inp.value=p.price.toFixed(2); return; }
       p.price=v; inp.value=v.toFixed(2);
     }else{
       const v=parseInt(inp.value,10); if(isNaN(v)||v<0){ inp.value=p.qty; return; }
       p.qty=v;
     }
     saveProducts();
-    row.classList.toggle("low", p.qty<=5);
+    row.classList.toggle("low", p.qty<=settings.lowStock);
     const badge=row.querySelector(".stockbadge"); if(badge) badge.textContent=p.qty+" un · "+p.code;
     const s=row.querySelector(".saved"); s.classList.add("show"); setTimeout(()=>s.classList.remove("show"),1100);
   });
 
+  // gerência: excluir produto (delegação no click)
+  $("prodList").addEventListener("click", e=>{
+    const b=e.target.closest("[data-act='delprod']"); if(!b) return;
+    const row=b.closest(".prow"); const code=row.dataset.code;
+    const p=findProduct(code); if(!p) return;
+    askConfirm("Excluir produto","Remover \""+p.name+"\" do estoque? Esta ação não pode ser desfeita.",()=>{
+      DB.products=DB.products.filter(x=>x.code!==code);
+      saveProducts(); renderStock();
+      toast("Produto removido","bad");
+    },"Excluir");
+  });
+
   $("addProdBtn").addEventListener("click", addProduct);
+
+  // gerência: busca de produtos
+  $("prodSearch").addEventListener("input", e=>{ prodQuery=e.target.value; renderStock(); });
+
+  // gerência: limite de estoque baixo configurável
+  $("lowThreshold").addEventListener("change", e=>{
+    const v=parseInt(e.target.value,10);
+    settings.lowStock=(isNaN(v)||v<0)?0:v;
+    e.target.value=settings.lowStock;
+    sset("pdv:settings", settings);
+    renderStock();
+  });
+
+  // gerência: filtro de vendas por data + export CSV
+  $("salesDate").addEventListener("change", e=>{ salesFilter=e.target.value?isoToKey(e.target.value):null; renderSales(); });
+  $("salesAll").addEventListener("click", ()=>{ salesFilter=null; $("salesDate").value=""; renderSales(); });
+  $("exportCsv").addEventListener("click", exportCsv);
+
+  // sincronização entre abas (cards/estoque ao vivo)
+  window.addEventListener("storage", e=>{ if(e.key && e.key.indexOf("pdv:")===0) reloadFromStorage(); });
 
   // vendas: expandir
   $("salesList").addEventListener("click", e=>{
@@ -893,6 +1251,18 @@ function wire(){
   });
   $("manualModal").addEventListener("click", e=>{ if(e.target.id==="manualModal") closeManual(); });
 
+  // confirmação (sheet reutilizável)
+  $("confirmYes").addEventListener("click", ()=>{ const cb=confirmCb; closeConfirm(); if(cb) cb(); });
+  $("confirmNo").addEventListener("click", closeConfirm);
+  $("confirmModal").addEventListener("click", e=>{ if(e.target.id==="confirmModal") closeConfirm(); });
+
+  // Esc fecha qualquer modal aberto (acessibilidade)
+  document.addEventListener("keydown", e=>{
+    if(e.key!=="Escape") return;
+    if($("confirmModal").classList.contains("show")){ closeConfirm(); return; }
+    ["payModal","receiptModal","manualModal"].forEach(id=>{ const m=$(id); if(m && m.classList.contains("show")) m.classList.remove("show"); });
+  });
+
   // bloqueia gestos/zoom residuais
   document.addEventListener("gesturestart", e=>e.preventDefault());
   document.addEventListener("dblclick", e=>e.preventDefault(), {passive:false});
@@ -906,6 +1276,11 @@ function switchTab(which){
   $("panelVendas").classList.toggle("is-active",!est);
   if(!est) renderSales(); else renderStock();
   renderCards();
+}
+
+/* ---------- service worker (PWA: instalável e offline) ---------- */
+if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){
+  window.addEventListener("load", ()=>{ navigator.serviceWorker.register("./sw.js").catch(()=>{}); });
 }
 
 /* ---------- start ---------- */
