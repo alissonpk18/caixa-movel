@@ -138,19 +138,33 @@
   }
   #reader{position:absolute;inset:0}
   #reader video{width:100%!important;height:100%!important;object-fit:cover!important}
+  /* a biblioteca html5-qrcode desenha o próprio quadro de leitura; escondemos
+     para não aparecer DOIS quadrados. O único guia visual é a .reticle abaixo. */
+  #reader #qr-shaded-region,
+  #reader__scan_region img,
+  #reader__dashboard{display:none!important}
   .reticle{
     position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;z-index:2;
   }
   .reticle .frame{
-    width:74%;max-width:340px;height:120px;border-radius:18px;
-    box-shadow:0 0 0 4000px rgba(0,0,0,.32);
-    border:2px solid rgba(255,255,255,.85);
+    width:88%;max-width:420px;height:170px;border-radius:18px;
+    box-shadow:0 0 0 4000px rgba(0,0,0,.28);
+    border:2px solid rgba(255,255,255,.9);
   }
   .reticle .laser{
-    position:absolute;width:74%;max-width:340px;height:2px;background:var(--bad);
+    position:absolute;width:88%;max-width:420px;height:2px;background:var(--bad);
     box-shadow:0 0 12px var(--bad);animation:scan 1.8s ease-in-out infinite;
   }
-  @keyframes scan{0%,100%{transform:translateY(-58px)}50%{transform:translateY(58px)}}
+  @keyframes scan{0%,100%{transform:translateY(-78px)}50%{transform:translateY(78px)}}
+  /* botão de flash (lanterna), só aparece se a câmera suportar */
+  .torch-btn{
+    position:absolute;right:12px;top:12px;z-index:5;display:none;
+    width:46px;height:46px;border-radius:50%;align-items:center;justify-content:center;
+    background:rgba(11,14,19,.55);color:#fff;font-size:20px;backdrop-filter:blur(2px);
+    border:1px solid rgba(255,255,255,.35);
+  }
+  .torch-btn.on{background:#FACC15;color:#1A1300;border-color:#FACC15}
+  .torch-btn:active{transform:scale(.94)}
   .scan-hint{position:absolute;left:0;right:0;bottom:10px;text-align:center;color:#fff;
     font-size:12.5px;font-weight:600;opacity:.85;z-index:3;text-shadow:0 1px 3px rgba(0,0,0,.6)}
 
@@ -430,6 +444,7 @@
     <div class="scanwrap">
       <div id="reader"></div>
       <div class="reticle"><div class="frame"></div><div class="laser"></div></div>
+      <button class="torch-btn" id="torchBtn" type="button" title="Flash" aria-label="Ligar ou desligar o flash">🔦</button>
       <div class="scan-hint">Aproxime o código de barras do quadro</div>
       <div id="scanFallback">
         <div class="ico">📷</div>
@@ -664,7 +679,7 @@ const DB = { users:[], products:[], sales:[] };
 let settings = { lowStock:5 };
 let salesFilter = todayKey();   // chave de data selecionada; null = todas
 let prodQuery = "";
-let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, lastScan:{code:"",t:0}, audio:null, pay:{method:"dinheiro"} };
+let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, lastScan:{code:"",t:0}, audio:null, pay:{method:"dinheiro"}, torch:null, torchOn:false };
 
 const SEED_USERS = [
   { username:"gerente", password:"1234", role:"gerente",  name:"Gerência", canAddStock:true },
@@ -826,16 +841,52 @@ function startScanner(){
   try{ state.scanner = state.scanner || new Html5Qrcode("reader",{ formatsToSupport:fmts, verbose:false }); }
   catch(e){ showFallback("Não foi possível iniciar o leitor."); return; }
 
+  // Pede resolução alta + câmera traseira + foco contínuo: barcode nítido lê melhor.
+  const videoConstraints = {
+    facingMode:{ ideal:"environment" },
+    width:{ ideal:1920 }, height:{ ideal:1080 },
+    advanced:[{ focusMode:"continuous" }]
+  };
+
   state.scanner.start(
-    { facingMode:"environment" },
-    { fps:10, qrbox:(w,h)=>{ const m=Math.min(w,h); return {width:Math.floor(m*0.78), height:120}; } },
+    videoConstraints,
+    {
+      fps:12,
+      // Região de leitura larga (códigos de barras são compridos) e alinhada à .reticle.
+      qrbox:(vw,vh)=>({ width:Math.floor(vw*0.88), height:Math.min(Math.floor(vh*0.55),190) })
+    },
     onScan,
     ()=>{}
-  ).then(()=>{ state.scanReady=true; })
+  ).then(()=>{ state.scanReady=true; setupTorch(); })
    .catch(err=>{
      const denied = (""+err).toLowerCase().includes("permission") || (""+err).toLowerCase().includes("notallowed");
      showFallback(denied ? "Permissão de câmera negada. Digite o código manualmente." : "Câmera indisponível. Digite o código manualmente.");
    });
+}
+
+/* Flash / lanterna — só habilita o botão se a câmera em uso suportar torch. */
+function setupTorch(){
+  const btn=$("torchBtn");
+  state.torch=null; state.torchOn=false;
+  if(btn){ btn.classList.remove("on"); btn.style.display="none"; }
+  try{
+    const caps = state.scanner.getRunningTrackCameraCapabilities();
+    const torch = caps && caps.torchFeature ? caps.torchFeature() : null;
+    if(torch && torch.isSupported()){
+      state.torch=torch;
+      state.torchOn=!!torch.value();
+      if(btn){ btn.style.display="flex"; btn.classList.toggle("on", state.torchOn); }
+    }
+  }catch(e){ /* sem suporte a flash nesta câmera/navegador */ }
+}
+function toggleTorch(){
+  if(!state.torch){ return; }
+  const btn=$("torchBtn");
+  const next=!state.torchOn;
+  Promise.resolve(state.torch.apply(next)).then(()=>{
+    state.torchOn=next;
+    if(btn) btn.classList.toggle("on", next);
+  }).catch(()=>{ setStatus("Flash indisponível nesta câmera","bad"); });
 }
 function showFallback(msg){
   state.scanReady=false;
@@ -847,6 +898,8 @@ function stopScanner(){
     try{ state.scanner.stop().then(()=>{ try{state.scanner.clear();}catch(e){} }).catch(()=>{}); }catch(e){}
   }
   state.scanReady=false;
+  state.torch=null; state.torchOn=false;
+  const tb=$("torchBtn"); if(tb){ tb.classList.remove("on"); tb.style.display="none"; }
 }
 function onScan(code){
   const now=Date.now();
@@ -1329,6 +1382,9 @@ function wire(){
   // câmera fallback
   $("retryCam").addEventListener("click", ()=>{ state.scanner=null; startScanner(); });
   $("manualBtn2").addEventListener("click", openManual);
+
+  // flash / lanterna
+  $("torchBtn").addEventListener("click", toggleTorch);
 
   // carrinho (delegação)
   $("cartList").addEventListener("click", e=>{
