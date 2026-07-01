@@ -848,11 +848,17 @@ function stopScanner(){
   }
   state.scanReady=false;
 }
+// enquanto um código está na frente da câmera o leitor dispara vários quadros por segundo;
+// só reaceitamos o MESMO código depois que ele some por um instante (intervalo sem leituras)
+// e reaparece — isso indica um novo item físico, permitindo escanear 2+ unidades iguais.
+const SCAN_REPEAT_GAP=500;
 function onScan(code){
   const now=Date.now();
-  // ignora leituras repetidas do mesmo código em sequência (o leitor dispara várias vezes)
-  if(code===state.lastScan.code && now-state.lastScan.t<1500) return;
-  state.lastScan={code, t:now};
+  const same=code===state.lastScan.code;
+  const gap=now-state.lastScan.t;      // tempo desde a última leitura (de qualquer código)
+  state.lastScan={code, t:now};        // atualiza o "último visto" em toda leitura
+  // mesmo código ainda na frente da câmera (quadros seguidos): ignora para não multiplicar
+  if(same && gap<SCAN_REPEAT_GAP) return;
   addByCode(code);
 }
 
