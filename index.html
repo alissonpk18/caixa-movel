@@ -408,14 +408,19 @@
   /* ============================================================
      OCR — "Ler números" (atalho quando o código de barras não lê)
      ============================================================ */
+  .scan-actions{
+    position:absolute;left:0;right:0;bottom:34px;z-index:5;display:none;
+    justify-content:center;gap:8px;padding:0 10px;
+  }
+  .scan-actions.show{display:flex}
   .ocr-btn{
-    position:absolute;left:50%;bottom:36px;transform:translateX(-50%);z-index:5;display:none;
-    align-items:center;gap:8px;padding:0 16px;height:42px;border-radius:21px;
-    background:rgba(45,78,216,.92);color:#fff;font-weight:800;font-size:13.5px;
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;
+    padding:0 14px;height:42px;border-radius:21px;
+    background:rgba(45,78,216,.92);color:#fff;font-weight:800;font-size:12.5px;
     box-shadow:0 6px 18px rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.25);
   }
-  .ocr-btn.show{display:inline-flex}
-  .ocr-btn:active{transform:translateX(-50%) scale(.96)}
+  .ocr-btn.type{background:rgba(20,24,31,.72)}
+  .ocr-btn:active{transform:scale(.96)}
   .ocr-btn[disabled]{opacity:.65;pointer-events:none}
 
   .ocr-read{font-family:var(--mono);font-weight:800;font-size:19px;text-align:center;letter-spacing:1px;margin:2px 0 6px;color:var(--ink)}
@@ -479,7 +484,10 @@
       <div id="reader"></div>
       <div class="reticle"><div class="frame"></div><div class="laser"></div></div>
       <button class="torch-btn" id="torchBtn" type="button" title="Flash" aria-label="Ligar ou desligar o flash">🔦</button>
-      <button class="ocr-btn" id="ocrBtn" type="button" aria-label="Ler os números da etiqueta">🔢 Ler números</button>
+      <div class="scan-actions" id="scanActions">
+        <button class="ocr-btn" id="ocrBtn" type="button" aria-label="Ler os números da etiqueta">🔢 Ler números</button>
+        <button class="ocr-btn type" id="typeBtn" type="button" aria-label="Digitar o número do código">⌨️ Digitar número</button>
+      </div>
       <div class="scan-hint">Aproxime o código de barras do quadro</div>
       <div id="scanFallback">
         <div class="ico">📷</div>
@@ -705,7 +713,7 @@
 
 /* Versão do app — mantenha em sincronia com CACHE do sw.js.
    Aparece no canto inferior direito para confirmar visualmente a atualização. */
-const APP_VERSION = "v8";
+const APP_VERSION = "v9";
 
 /* ---------- helpers ---------- */
 const $ = (id) => document.getElementById(id);
@@ -921,7 +929,7 @@ function startScanner(){
     state.scanner = new Html5Qrcode("reader",{ formatsToSupport:fmts, verbose:false });
   };
 
-  const onOk = ()=>{ state.scanReady=true; setStatus("Pronto para ler"); setupTorch(); const ob=$("ocrBtn"); if(ob) ob.classList.add("show"); };
+  const onOk = ()=>{ state.scanReady=true; setStatus("Pronto para ler"); setupTorch(); const sa=$("scanActions"); if(sa) sa.classList.add("show"); };
   const fatal = (err)=>{
     const e=(""+(err&&(err.name||err))).toLowerCase();
     if(e.includes("permission")||e.includes("notallowed")){ showFallback("Permissão de câmera negada. Toque em “Tentar câmera” e permita o acesso, ou digite o código."); return true; }
@@ -983,7 +991,7 @@ function showFallback(msg){
   state.scanReady=false;
   $("fallbackMsg").textContent=msg||"Câmera indisponível. Digite o código manualmente.";
   $("scanFallback").classList.add("show");
-  const ob=$("ocrBtn"); if(ob) ob.classList.remove("show");
+  const sa=$("scanActions"); if(sa) sa.classList.remove("show");
   // limpa o "Abrindo câmera…" para o status não ficar travado
   const st=$("statusStrip"); if(st){ st.className=""; $("statusText").textContent="Pronto para ler"; }
 }
@@ -994,7 +1002,7 @@ function stopScanner(){
   state.scanReady=false;
   state.torch=null; state.torchOn=false;
   const tb=$("torchBtn"); if(tb){ tb.classList.remove("on"); tb.style.display="none"; }
-  const ob=$("ocrBtn"); if(ob) ob.classList.remove("show");
+  const sa=$("scanActions"); if(sa) sa.classList.remove("show");
 }
 
 /* "Tentar câmera": para e limpa o leitor anterior antes de reiniciar.
@@ -1633,8 +1641,9 @@ function wire(){
   // flash / lanterna
   $("torchBtn").addEventListener("click", toggleTorch);
 
-  // OCR "Ler números"
+  // OCR "Ler números" + "Digitar número"
   $("ocrBtn").addEventListener("click", runOcr);
+  $("typeBtn").addEventListener("click", openManual);
   $("ocrClose").addEventListener("click", ()=>$("ocrModal").classList.remove("show"));
   $("ocrManual").addEventListener("click", ()=>{ $("ocrModal").classList.remove("show"); openManual(); });
   $("ocrModal").addEventListener("click", e=>{ if(e.target.id==="ocrModal") $("ocrModal").classList.remove("show"); });
