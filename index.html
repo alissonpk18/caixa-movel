@@ -435,6 +435,11 @@
   .ocr-item .plus{color:var(--brand);font-weight:800;font-size:20px;flex:0 0 auto}
   .ocr-empty{color:var(--muted);font-size:13px;text-align:center;padding:14px}
 
+  /* lista filtrada dentro do teclado manual */
+  .manual-list{display:none;max-height:26vh;overflow-y:auto;margin:0 0 12px}
+  .manual-list.show{display:block}
+  .manual-list .ml-empty{color:var(--muted);font-size:13px;text-align:center;padding:12px}
+
   @media (prefers-reduced-motion: reduce){
     *{animation:none!important;transition:none!important}
   }
@@ -608,6 +613,7 @@
       <h3 id="manualTitle">Digitar código</h3>
       <p class="sub">Use quando o código não for lido pela câmera.</p>
       <div id="manualDisplay" class="empty">código do produto</div>
+      <div class="manual-list" id="manualList"></div>
       <div class="keypad" id="keypad">
         <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
         <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
@@ -713,7 +719,7 @@
 
 /* Versão do app — mantenha em sincronia com CACHE do sw.js.
    Aparece no canto inferior direito para confirmar visualmente a atualização. */
-const APP_VERSION = "v9";
+const APP_VERSION = "v10";
 
 /* ---------- helpers ---------- */
 const $ = (id) => document.getElementById(id);
@@ -1607,12 +1613,37 @@ function closeConfirm(){ $("confirmModal").classList.remove("show"); confirmCb=n
    TECLADO MANUAL
    ================================================================ */
 let manualBuf="";
+const MANUAL_MIN=4;   // começa a filtrar produtos a partir de 4 dígitos
 function openManual(){ manualBuf=""; updateManual(); $("manualModal").classList.add("show"); }
 function closeManual(){ $("manualModal").classList.remove("show"); }
 function updateManual(){
   const d=$("manualDisplay");
   if(manualBuf){ d.textContent=manualBuf; d.classList.remove("empty"); }
   else{ d.textContent="código do produto"; d.classList.add("empty"); }
+  renderManualList();
+}
+function renderManualList(){
+  const el=$("manualList"); if(!el) return;
+  if(manualBuf.length<MANUAL_MIN){ el.classList.remove("show"); el.innerHTML=""; return; }
+  const q=manualBuf;
+  const list=DB.products
+    .filter(p=>String(p.code).includes(q))
+    .sort((a,b)=>{
+      const as=String(a.code).startsWith(q), bs=String(b.code).startsWith(q);
+      if(as!==bs) return as?-1:1;                     // quem começa com os dígitos vem primeiro
+      return String(a.name).localeCompare(String(b.name));
+    })
+    .slice(0,20);
+  el.classList.add("show");
+  if(!list.length){ el.innerHTML='<div class="ml-empty">Nenhum produto com esses números.</div>'; return; }
+  el.innerHTML=list.map(p=>{
+    const code=String(p.code);
+    const hl=escapeHtml(code).replace(escapeHtml(q),'<span class="mark">'+escapeHtml(q)+'</span>');
+    return `<button class="ocr-item" data-code="${escapeHtml(code)}">
+      <div style="flex:1;min-width:0"><div class="nm">${escapeHtml(p.name)}</div><div class="cd">${hl} · ${p.qty} un</div></div>
+      <div class="plus">＋</div>
+    </button>`;
+  }).join("");
 }
 
 /* ================================================================
@@ -1774,6 +1805,12 @@ function wire(){
     else if(k==="clear") manualBuf="";
     else if(manualBuf.length<14) manualBuf+=k;
     updateManual();
+  });
+  // escolher um produto da lista filtrada
+  $("manualList").addEventListener("click", e=>{
+    const b=e.target.closest(".ocr-item"); if(!b) return;
+    addByCode(b.dataset.code);
+    closeManual();
   });
   $("manualClose").addEventListener("click", closeManual);
   $("manualSearch").addEventListener("click", ()=>{
