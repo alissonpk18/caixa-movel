@@ -39,6 +39,8 @@
     --ok-bg:#DCFCE7;
     --bad:#DC2626;          /* ERRO/ALERTA (reservado) */
     --bad-bg:#FDE3E3;
+    --warn:#B45309;         /* AVISO/VALIDADE PRÓXIMA */
+    --warn-bg:#FEF3C7;
 
     --tap:56px;             /* área mínima de toque */
     --radius:16px;
@@ -250,6 +252,23 @@
   .prow.low .stockbadge{color:var(--bad)}
   .saved{color:var(--ok);font-size:11.5px;font-weight:800;opacity:0;transition:opacity .2s}
   .saved.show{opacity:1}
+  /* validade */
+  .prow.soon{border-color:var(--warn)}
+  .prow.expired{border-color:var(--bad)}
+  .explabel{display:inline-block;font-size:11.5px;font-weight:700;margin:6px 2px 0;padding:2px 9px;
+    border-radius:999px;background:var(--bg);color:var(--muted)}
+  .explabel.soon{background:var(--warn-bg);color:var(--warn)}
+  .explabel.expired{background:var(--bad-bg);color:var(--bad)}
+  .exp-edit{margin-top:8px}
+  .exp-edit label{display:block;font-size:11px;font-weight:700;color:var(--muted);margin:0 0 4px 2px}
+  .exp-edit input{width:100%;height:46px;border:1.5px solid var(--line);border-radius:11px;padding:0 12px;
+    font-family:var(--mono);font-weight:700;background:#fff}
+  .exp-edit input:focus{outline:none;border-color:var(--brand)}
+  /* alerta de validade no topo do estoque */
+  .exp-alert{display:none;border-radius:12px;padding:11px 14px;margin-bottom:12px;font-size:13px;font-weight:700}
+  .exp-alert.show{display:block}
+  .exp-alert.warn{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn)}
+  .exp-alert.bad{background:var(--bad-bg);color:var(--bad);border:1px solid var(--bad)}
 
   .addbox{background:var(--surface);border:1px dashed var(--line);border-radius:16px;padding:14px;margin-bottom:18px}
   .addbox .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -495,13 +514,19 @@
             <input id="np_price" type="tel" inputmode="decimal" placeholder="Preço (R$)" />
             <input id="np_qty" type="tel" inputmode="numeric" placeholder="Quantidade" />
           </div>
+          <div class="exp-edit" style="margin-top:10px">
+            <label for="np_exp">Validade (opcional)</label>
+            <input id="np_exp" type="date" />
+          </div>
           <div class="err" id="np_err"></div>
           <button class="btn btn-primary" id="addProdBtn" style="margin-top:10px">Cadastrar produto</button>
         </div>
 
         <div class="sectitle">Produtos no estoque</div>
         <div class="lowcfg">Alerta de estoque baixo em ≤ <input id="lowThreshold" type="tel" inputmode="numeric" value="5" /> un</div>
+        <div class="lowcfg">Avisar validade a partir de <input id="expThreshold" type="tel" inputmode="numeric" value="30" /> dias antes</div>
         <input id="prodSearch" class="prod-search" type="search" placeholder="Buscar por nome ou código" />
+        <div class="exp-alert" id="expAlert"></div>
         <div id="prodList"></div>
       </div>
 
@@ -607,6 +632,8 @@
       <input id="rs_code" class="fld" type="tel" inputmode="numeric" autocomplete="off" placeholder="Código de barras" />
       <div class="found" id="rs_found"></div>
       <input id="rs_qty" class="fld" type="tel" inputmode="numeric" autocomplete="off" placeholder="Quantidade a adicionar" />
+      <label for="rs_exp" style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin:0 2px 5px">Validade da entrada (opcional)</label>
+      <input id="rs_exp" class="fld" type="date" autocomplete="off" />
       <div class="err" id="rs_err"></div>
       <div class="mactions">
         <button class="btn btn-ghost" id="rsClose">Fechar</button>
@@ -661,7 +688,7 @@ try{ const k="__pdv_test__"; window.localStorage.setItem(k,"1"); window.localSto
 let storageOK = hasArtifactStorage || hasLocalStorage;
 
 const DB = { users:[], products:[], sales:[] };
-let settings = { lowStock:5 };
+let settings = { lowStock:5, expWarnDays:30 };
 let salesFilter = todayKey();   // chave de data selecionada; null = todas
 let prodQuery = "";
 let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, lastScan:{code:"",t:0}, audio:null, pay:{method:"dinheiro"} };
@@ -673,14 +700,14 @@ const SEED_USERS = [
 /* a gerência tem acesso total ao estoque; para operadores a permissão é opcional */
 function canAddStock(user){ return !!user && (user.role==="gerente" || user.canAddStock===true); }
 const SEED_PRODUCTS = [
-  { code:"7891000100103", name:"Leite Integral 1L",     price:5.49,  qty:40 },
-  { code:"7894900011517", name:"Refrigerante Cola 2L",  price:8.99,  qty:24 },
-  { code:"7891910000197", name:"Açúcar Refinado 1kg",   price:4.29,  qty:30 },
-  { code:"7896005800010", name:"Café Torrado 500g",     price:16.90, qty:18 },
-  { code:"7891000053508", name:"Biscoito Recheado",     price:6.49,  qty:50 },
-  { code:"7898080640017", name:"Pão de Forma",          price:7.99,  qty:12 },
-  { code:"7891150064201", name:"Detergente",            price:2.79,  qty:5  },
-  { code:"7896036090010", name:"Arroz 5kg",             price:24.90, qty:15 }
+  { code:"7891000100103", name:"Leite Integral 1L",     price:5.49,  qty:40, exp:"2026-07-12" },
+  { code:"7894900011517", name:"Refrigerante Cola 2L",  price:8.99,  qty:24, exp:"2027-01-15" },
+  { code:"7891910000197", name:"Açúcar Refinado 1kg",   price:4.29,  qty:30, exp:"2026-06-20" },
+  { code:"7896005800010", name:"Café Torrado 500g",     price:16.90, qty:18, exp:"2026-12-01" },
+  { code:"7891000053508", name:"Biscoito Recheado",     price:6.49,  qty:50, exp:"2026-07-28" },
+  { code:"7898080640017", name:"Pão de Forma",          price:7.99,  qty:12, exp:"2026-07-04" },
+  { code:"7891150064201", name:"Detergente",            price:2.79,  qty:5,  exp:null },
+  { code:"7896036090010", name:"Arroz 5kg",             price:24.90, qty:15, exp:"2027-03-10" }
 ];
 
 async function sget(key){
@@ -708,7 +735,10 @@ async function boot(){
     DB.products = await sget("pdv:products");
     DB.sales    = await sget("pdv:sales");
     const st    = await sget("pdv:settings");
-    if(st && typeof st.lowStock==="number") settings=st;
+    if(st && typeof st.lowStock==="number"){
+      settings.lowStock = st.lowStock;
+      if(typeof st.expWarnDays==="number") settings.expWarnDays = st.expWarnDays;
+    }
   }
   if(!Array.isArray(DB.users)   || !DB.users.length){ DB.users = SEED_USERS;       await sset("pdv:users", DB.users); }
   if(!Array.isArray(DB.products)){ DB.products = SEED_PRODUCTS.map(p=>({...p}));    await saveProducts(); }
@@ -1039,6 +1069,7 @@ function cancelSale(){
    ================================================================ */
 function renderManager(){
   if($("lowThreshold")) $("lowThreshold").value=settings.lowStock;
+  if($("expThreshold")) $("expThreshold").value=settings.expWarnDays;
   if($("salesDate")) $("salesDate").value = salesFilter ? keyToIso(salesFilter) : "";
   renderCards(); renderStock(); renderSales(); renderUsers();
 }
@@ -1061,19 +1092,69 @@ function renderCards(){
   $("cardItems").textContent=items;
 }
 
+/* ---------- validade ---------- */
+/* dias até vencer: negativo = vencido, 0 = vence hoje, null = sem validade */
+function daysUntilExp(iso){
+  if(!iso) return null;
+  const a=iso.split("-").map(Number); if(a.length!==3||a.some(isNaN)) return null;
+  const exp=new Date(a[0],a[1]-1,a[2]);
+  const n=new Date(); const today=new Date(n.getFullYear(),n.getMonth(),n.getDate());
+  return Math.round((exp-today)/86400000);
+}
+function expClass(iso){
+  const d=daysUntilExp(iso);
+  if(d===null) return "";
+  if(d<0) return "expired";
+  if(d<=settings.expWarnDays) return "soon";
+  return "";
+}
+function isoToBr(iso){ if(!iso) return ""; const a=iso.split("-"); return a[2]+"/"+a[1]+"/"+a[0]; }
+function expText(iso){
+  const d=daysUntilExp(iso);
+  if(d===null) return "Sem validade";
+  const br=isoToBr(iso);
+  if(d<0)   return "⚠ Vencido há "+(-d)+" "+(-d===1?"dia":"dias")+" ("+br+")";
+  if(d===0) return "⚠ Vence hoje ("+br+")";
+  if(d<=settings.expWarnDays) return "⏰ Vence em "+d+" "+(d===1?"dia":"dias")+" ("+br+")";
+  return "Validade: "+br;
+}
+/* atualiza o selo e as bordas de uma linha do estoque conforme a validade */
+function refreshExpRow(row,p){
+  const ec=expClass(p.exp);
+  row.classList.remove("soon","expired");
+  if(ec) row.classList.add(ec);
+  const lbl=row.querySelector(".explabel");
+  if(lbl){ lbl.textContent=expText(p.exp); lbl.className="explabel "+ec; }
+}
+function renderExpAlert(){
+  const el=$("expAlert"); if(!el) return;
+  const expired=DB.products.filter(p=>expClass(p.exp)==="expired").length;
+  const soon=DB.products.filter(p=>expClass(p.exp)==="soon").length;
+  if(!expired && !soon){ el.className="exp-alert"; el.textContent=""; return; }
+  const parts=[];
+  if(expired) parts.push(expired+" "+(expired===1?"produto vencido":"produtos vencidos"));
+  if(soon)    parts.push(soon+" "+(soon===1?"a vencer":"a vencer"));
+  el.textContent=(expired?"⚠ ":"⏰ ")+parts.join(" · ");
+  el.className="exp-alert show "+(expired?"bad":"warn");
+}
+
 function renderStock(){
   const el=$("prodList");
+  renderExpAlert();
   if(!DB.products.length){ el.innerHTML='<div class="empty-list">Nenhum produto cadastrado.</div>'; return; }
   const q=prodQuery.trim().toLowerCase();
   const list=q ? DB.products.filter(p=>p.name.toLowerCase().includes(q)||p.code.includes(q)) : DB.products;
   if(!list.length){ el.innerHTML='<div class="empty-list">Nenhum produto encontrado.</div>'; return; }
-  el.innerHTML=list.map(p=>`
-    <div class="prow ${p.qty<=settings.lowStock?"low":""}" data-code="${p.code}">
+  el.innerHTML=list.map(p=>{
+    const ec=expClass(p.exp);
+    return `
+    <div class="prow ${p.qty<=settings.lowStock?"low":""} ${ec}" data-code="${p.code}">
       <div class="top">
         <input class="pname-input" type="text" data-f="name" value="${escapeHtml(p.name)}" />
         <button class="prow-del" data-act="delprod" title="Excluir produto">✕</button>
       </div>
       <div class="code-line stockbadge">${p.qty} un · ${p.code}</div>
+      <div><span class="explabel ${ec}">${escapeHtml(expText(p.exp))}</span></div>
       <div class="edits">
         <div class="e">
           <label>Preço (R$)</label>
@@ -1084,8 +1165,13 @@ function renderStock(){
           <input type="tel" inputmode="numeric" data-f="qty" value="${p.qty}" />
         </div>
       </div>
+      <div class="exp-edit">
+        <label>Validade</label>
+        <input type="date" data-f="exp" value="${p.exp||""}" />
+      </div>
       <div style="text-align:right;margin-top:6px"><span class="saved">✓ salvo</span></div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 function renderSales(){
@@ -1146,7 +1232,10 @@ async function reloadFromStorage(){
     if(Array.isArray(p)) DB.products=p;
     if(Array.isArray(s)) DB.sales=s;
     if(Array.isArray(u) && u.length) DB.users=u;
-    if(st && typeof st.lowStock==="number") settings=st;
+    if(st && typeof st.lowStock==="number"){
+      settings.lowStock = st.lowStock;
+      if(typeof st.expWarnDays==="number") settings.expWarnDays = st.expWarnDays;
+    }
   }
   if($("gerente").classList.contains("is-active")) renderManager();
   // se um operador está logado, mantém o botão de estoque coerente com a permissão atual
@@ -1161,6 +1250,7 @@ function addProduct(){
   const name=$("np_name").value.trim();
   const price=parseMoney($("np_price").value);
   const qty=parseInt($("np_qty").value,10);
+  const exp=$("np_exp").value||null;
   const err=$("np_err");
 
   if(!/^\d{6,14}$/.test(code)){ err.textContent="Código inválido (use 6 a 14 dígitos)."; return; }
@@ -1169,9 +1259,9 @@ function addProduct(){
   if(isNaN(price)||price<=0){ err.textContent="Preço inválido."; return; }
   if(isNaN(qty)||qty<0){ err.textContent="Quantidade inválida."; return; }
 
-  DB.products.unshift({ code, name, price, qty });
+  DB.products.unshift({ code, name, price, qty, exp });
   saveProducts();
-  ["np_code","np_name","np_price","np_qty"].forEach(id=>$(id).value="");
+  ["np_code","np_name","np_price","np_qty","np_exp"].forEach(id=>$(id).value="");
   err.textContent="";
   renderStock();
   toast("✓ "+name+" cadastrado","ok");
@@ -1259,7 +1349,7 @@ function deleteUser(username){
    ================================================================ */
 function openRestock(){
   if(!canAddStock(state.user)) return;
-  $("rs_code").value=""; $("rs_qty").value="";
+  $("rs_code").value=""; $("rs_qty").value=""; $("rs_exp").value="";
   $("rs_err").textContent=""; updateRestockFound();
   $("restockModal").classList.add("show");
   setTimeout(()=>{ try{ $("rs_code").focus(); }catch(e){} },120);
@@ -1269,7 +1359,7 @@ function updateRestockFound(){
   const f=$("rs_found"); const code=$("rs_code").value.trim();
   if(!code){ f.textContent=""; f.classList.remove("bad"); return; }
   const p=findProduct(code);
-  if(p){ f.textContent=p.name+" · estoque atual: "+p.qty+" un"; f.classList.remove("bad"); }
+  if(p){ f.textContent=p.name+" · estoque atual: "+p.qty+" un"+(p.exp?" · "+expText(p.exp):""); f.classList.remove("bad"); }
   else{ f.textContent="Código não cadastrado"; f.classList.add("bad"); }
 }
 function confirmRestock(){
@@ -1280,7 +1370,10 @@ function confirmRestock(){
   if(!p){ err.textContent="Produto não encontrado. Cadastro de novos produtos é feito pela gerência."; return; }
   if(isNaN(add)||add<=0){ err.textContent="Informe uma quantidade válida (maior que zero)."; return; }
   p.qty+=add;
+  const exp=$("rs_exp").value||null;
+  if(exp) p.exp=exp;   // registra a validade da mercadoria que entrou
   saveProducts();
+  if($("gerente").classList.contains("is-active")) renderStock();
   closeRestock();
   setStatus("Estoque atualizado: "+p.name+" (+"+add+")","ok"); beep("ok");
   toast("✓ +"+add+" em "+p.name,"ok");
@@ -1399,6 +1492,8 @@ function wire(){
     }else if(inp.dataset.f==="price"){
       const v=parseMoney(inp.value); if(isNaN(v)||v<0){ inp.value=p.price.toFixed(2); return; }
       p.price=v; inp.value=v.toFixed(2);
+    }else if(inp.dataset.f==="exp"){
+      p.exp=inp.value||null;
     }else{
       const v=parseInt(inp.value,10); if(isNaN(v)||v<0){ inp.value=p.qty; return; }
       p.qty=v;
@@ -1406,6 +1501,7 @@ function wire(){
     saveProducts();
     row.classList.toggle("low", p.qty<=settings.lowStock);
     const badge=row.querySelector(".stockbadge"); if(badge) badge.textContent=p.qty+" un · "+p.code;
+    refreshExpRow(row,p); renderExpAlert();
     const s=row.querySelector(".saved"); s.classList.add("show"); setTimeout(()=>s.classList.remove("show"),1100);
   });
 
@@ -1431,6 +1527,15 @@ function wire(){
     const v=parseInt(e.target.value,10);
     settings.lowStock=(isNaN(v)||v<0)?0:v;
     e.target.value=settings.lowStock;
+    sset("pdv:settings", settings);
+    renderStock();
+  });
+
+  // gerência: dias de antecedência para avisar validade
+  $("expThreshold").addEventListener("change", e=>{
+    const v=parseInt(e.target.value,10);
+    settings.expWarnDays=(isNaN(v)||v<0)?0:v;
+    e.target.value=settings.expWarnDays;
     sset("pdv:settings", settings);
     renderStock();
   });
