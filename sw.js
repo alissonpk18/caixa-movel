@@ -1,7 +1,8 @@
 /* Service Worker do PDV · Caixa Rápido
-   Estratégia: cache-first com atualização em segundo plano.
-   Permite abrir e operar o app offline depois da primeira visita. */
-const CACHE = "pdv-cache-v11";
+   Estratégia: cache-first com atualização em segundo plano
+   (stale-while-revalidate). Permite abrir e operar o app offline
+   depois da primeira visita, sem servir HTML velho para sempre. */
+const CACHE = "pdv-cache-v12";
 const ASSETS = [
   "./pdv-mobile.html",
   "./manifest.webmanifest",
@@ -30,17 +31,30 @@ self.addEventListener("activate", e => {
 
 self.addEventListener("fetch", e => {
   const req = e.request;
-  if (req.method !== "GET") return;
-  e.respondWith(
-    caches.match(req).then(hit => {
-      if (hit) return hit;
-      return fetch(req).then(res => {
-        if (res && res.ok && (res.type === "basic" || res.type === "cors")) {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(req, copy));
-        }
-        return res;
-      }).catch(() => hit);
-    })
-  );
+  if (req.method !== "GET" || !req.url.startsWith("http")) return;
+  e.respondWith((async () => {
+    const cached = await caches.match(req);
+    // revalida em segundo plano: a próxima visita já pega a versão nova
+    const network = fetch(req).then(res => {
+      if (res && res.ok && (res.type === "basic" || res.type === "cors")) {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+      }
+      return res;
+    });
+    if (cached) {
+      network.catch(() => {}); // offline: silencia a revalidação e serve o cache
+      return cached;
+    }
+    try {
+      return await network;
+    } catch (err) {
+      // navegação offline sem cache exato: cai no shell do app
+      if (req.mode === "navigate") {
+        const shell = await caches.match("./pdv-mobile.html");
+        if (shell) return shell;
+      }
+      return new Response("Offline", { status: 503, statusText: "Offline" });
+    }
+  })());
 });

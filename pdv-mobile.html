@@ -668,13 +668,16 @@
 /* ---------- helpers ---------- */
 const $ = (id) => document.getElementById(id);
 const money = (v) => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
-/* aceita "1.234,56", "5,49", "5.49" → número. Vírgula = decimal (padrão BR). */
+/* aceita "1.234,56", "5,49", "5.49", "R$ 5,49" → número. Vírgula = decimal (padrão BR). */
 function parseMoney(str){
-  let s = String(str==null?"":str).trim();
+  let s = String(str==null?"":str).trim().replace(/(R\$|\s)/gi,"");
   if(!s) return NaN;
-  if(s.indexOf(",")>-1) s = s.replace(/\./g,"").replace(",",".");
+  if(s.indexOf(",")>-1) s = s.replace(/\./g,"").replace(/,/g,".");
+  if(!/^-?\d*\.?\d+$/.test(s)) return NaN;
   return parseFloat(s);
 }
+/* arredonda para centavos — dinheiro nunca compara/acumula float cru */
+const round2 = (v) => Math.round((v + Number.EPSILON) * 100) / 100;
 const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "id-"+Date.now()+"-"+Math.random().toString(16).slice(2);
 const todayKey = (d=new Date()) => d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -688,10 +691,12 @@ try{ const k="__pdv_test__"; window.localStorage.setItem(k,"1"); window.localSto
 let storageOK = hasArtifactStorage || hasLocalStorage;
 
 const DB = { users:[], products:[], sales:[] };
+const QTY_MAX   = 1000000;    // teto de estoque por produto
+const PRICE_MAX = 999999.99;  // teto de preço unitário
 let settings = { lowStock:5, expWarnDays:30 };
 let salesFilter = todayKey();   // chave de data selecionada; null = todas
 let prodQuery = "";
-let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, lastScan:{code:"",t:0}, audio:null, pay:{method:"dinheiro"} };
+let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, scanStarting:false, scanStopping:null, lastScan:{code:"",t:0}, audio:null, pay:{method:"dinheiro"} };
 
 const SEED_USERS = [
   { username:"gerente", password:"1234", role:"gerente",  name:"Gerência", canAddStock:true },
@@ -719,10 +724,81 @@ async function sget(key){
 }
 async function sset(key,val){
   try{
-    if(hasArtifactStorage){ const ok = await window.storage.set(key, JSON.stringify(val)); if(!ok){storageOK=false;} return !!ok; }
+    if(hasArtifactStorage){ const ok = await window.storage.set(key, JSON.stringify(val)); if(!ok) markStorageFailure(); return !!ok; }
     if(hasLocalStorage){ window.localStorage.setItem(key, JSON.stringify(val)); return true; }
-    storageOK=false; return false;
-  }catch(e){ storageOK=false; return false; }
+    markStorageFailure(); return false;
+  }catch(e){ markStorageFailure(); return false; }
+}
+/* uma gravação falhou (quota cheia, storage revogado…): avisa na tela em vez de perder dados em silêncio */
+function markStorageFailure(){
+  storageOK=false;
+  const txt = (hasArtifactStorage||hasLocalStorage)
+    ? "⚠ Falha ao salvar — os dados podem não persistir neste aparelho"
+    : "⚠ Salvando só nesta sessão (armazenamento indisponível)";
+  [$("storageBanner"),$("storageBanner2")].forEach(b=>{ if(b){ b.textContent=txt; b.classList.add("show"); } });
+}
+
+/* ---------- saneamento dos dados carregados ----------
+   O storage pode conter dados de versões antigas ou corrompidos (edição
+   manual, quota parcial). Tudo que entra no app passa por aqui para que
+   um registro inválido nunca derrube a interface. */
+function isIsoDate(v){ return typeof v==="string" && /^\d{4}-\d{2}-\d{2}$/.test(v); }
+function applySettings(st){
+  if(!st || typeof st!=="object") return;
+  if(typeof st.lowStock==="number" && isFinite(st.lowStock) && st.lowStock>=0) settings.lowStock=Math.floor(st.lowStock);
+  if(typeof st.expWarnDays==="number" && isFinite(st.expWarnDays) && st.expWarnDays>=0) settings.expWarnDays=Math.floor(st.expWarnDays);
+}
+function sanitizeUsers(list){
+  if(!Array.isArray(list)) return null;
+  const seen=new Set(), out=[];
+  list.forEach(u=>{
+    if(!u || typeof u!=="object") return;
+    const username=String(u.username||"").trim().toLowerCase();
+    if(!username || seen.has(username)) return;
+    if(typeof u.password!=="string" && typeof u.passHash!=="string") return;
+    seen.add(username);
+    const clean={ username, role:u.role==="gerente"?"gerente":"operador",
+      name:String(u.name||username), canAddStock:u.canAddStock===true };
+    if(typeof u.passHash==="string" && u.passHash) clean.passHash=u.passHash;
+    else clean.password=u.password;
+    out.push(clean);
+  });
+  return out;
+}
+function sanitizeProducts(list){
+  if(!Array.isArray(list)) return null;
+  const seen=new Set(), out=[];
+  list.forEach(p=>{
+    if(!p || typeof p!=="object") return;
+    const code=String(p.code==null?"":p.code).trim();
+    const price=Number(p.price), qty=Math.floor(Number(p.qty));
+    if(!code || seen.has(code) || !isFinite(price) || price<0 || !isFinite(qty) || qty<0) return;
+    seen.add(code);
+    out.push({ code, name:String(p.name||code), price:round2(Math.min(price,PRICE_MAX)),
+      qty:Math.min(qty,QTY_MAX), exp:isIsoDate(p.exp)?p.exp:null });
+  });
+  return out;
+}
+function sanitizeSales(list){
+  if(!Array.isArray(list)) return null;
+  return list
+    .filter(s=>s && typeof s==="object" && typeof s.ts==="string" &&
+      !isNaN(Date.parse(s.ts)) && Array.isArray(s.items) && isFinite(Number(s.total)))
+    .map(s=>({
+      id:String(s.id||uid()), ts:s.ts, operator:String(s.operator||"—"), total:round2(Number(s.total)),
+      items:s.items.filter(i=>i&&typeof i==="object").map(i=>({
+        code:String(i.code==null?"":i.code), name:String(i.name||"?"),
+        price:Number(i.price)||0, qty:Number(i.qty)||0 })),
+      payment: s.payment && typeof s.payment==="object"
+        ? { method:String(s.payment.method||"—"), received:Number(s.payment.received)||0, change:Number(s.payment.change)||0 }
+        : null
+    }));
+}
+/* garante que sempre exista ao menos um acesso de gerência (evita trancar o app) */
+function ensureManagerAccess(){
+  if(DB.users.some(u=>u.role==="gerente")) return;
+  DB.users.push({...SEED_USERS[0]});
+  saveUsers();
 }
 const saveProducts = () => sset("pdv:products", DB.products);
 const saveSales    = () => sset("pdv:sales", DB.sales);
@@ -731,23 +807,17 @@ const saveSession  = () => sset("pdv:session", state.user ? {username:state.user
 
 async function boot(){
   if(hasArtifactStorage || hasLocalStorage){
-    DB.users    = await sget("pdv:users");
-    DB.products = await sget("pdv:products");
-    DB.sales    = await sget("pdv:sales");
-    const st    = await sget("pdv:settings");
-    if(st && typeof st.lowStock==="number"){
-      settings.lowStock = st.lowStock;
-      if(typeof st.expWarnDays==="number") settings.expWarnDays = st.expWarnDays;
-    }
+    DB.users    = sanitizeUsers(await sget("pdv:users"));
+    DB.products = sanitizeProducts(await sget("pdv:products"));
+    DB.sales    = sanitizeSales(await sget("pdv:sales"));
+    applySettings(await sget("pdv:settings"));
   }
-  if(!Array.isArray(DB.users)   || !DB.users.length){ DB.users = SEED_USERS;       await sset("pdv:users", DB.users); }
+  if(!Array.isArray(DB.users)   || !DB.users.length){ DB.users = SEED_USERS.map(u=>({...u})); await saveUsers(); }
   if(!Array.isArray(DB.products)){ DB.products = SEED_PRODUCTS.map(p=>({...p}));    await saveProducts(); }
   if(!Array.isArray(DB.sales)){ DB.sales = [];                                     await saveSales(); }
+  ensureManagerAccess();
 
-  if(!storageOK){
-    const txt = "⚠ Salvando só nesta sessão (armazenamento indisponível)";
-    [$("storageBanner"),$("storageBanner2")].forEach(b=>{ if(b){b.textContent=txt;b.classList.add("show");} });
-  }
+  if(!storageOK) markStorageFailure();
   wire();
   await restoreSession();
 }
@@ -807,14 +877,44 @@ function enterApp(found){
   }
 }
 
-function login(){
-  const u=$("loginUser").value.trim().toLowerCase();
-  const p=$("loginPass").value;
-  const found = DB.users.find(x=>x.username.toLowerCase()===u && x.password===p);
-  if(!found){ $("loginErr").textContent="Usuário ou senha incorretos."; beep("bad"); return; }
-  $("loginErr").textContent="";
-  $("loginPass").value="";
-  enterApp(found);
+/* ---------- senhas ----------
+   Sempre que o navegador expõe crypto.subtle (HTTPS/localhost, mesmo
+   requisito da câmera), as senhas são guardadas apenas como hash SHA-256.
+   Contas antigas em texto puro migram no primeiro login bem-sucedido. */
+async function hashPassword(pw){
+  try{
+    if(window.crypto && crypto.subtle && window.TextEncoder){
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("pdv#v1:"+pw));
+      return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+    }
+  }catch(e){}
+  return null; // sem suporte: mantém o comportamento anterior (texto puro)
+}
+async function verifyPassword(user,pass){
+  if(typeof user.passHash==="string" && user.passHash){
+    const h=await hashPassword(pass);
+    return h!==null && h===user.passHash;
+  }
+  return user.password===pass;
+}
+
+async function login(){
+  if(login.busy) return; // evita duplo submit enquanto o hash roda
+  login.busy=true;
+  try{
+    const u=$("loginUser").value.trim().toLowerCase();
+    const p=$("loginPass").value;
+    const found = DB.users.find(x=>x.username.toLowerCase()===u);
+    const ok = found ? await verifyPassword(found,p) : false;
+    if(!ok){ $("loginErr").textContent="Usuário ou senha incorretos."; beep("bad"); return; }
+    if(!found.passHash){
+      const h=await hashPassword(p);
+      if(h){ found.passHash=h; delete found.password; saveUsers(); }
+    }
+    $("loginErr").textContent="";
+    $("loginPass").value="";
+    enterApp(found);
+  }finally{ login.busy=false; }
 }
 
 async function restoreSession(){
@@ -844,7 +944,8 @@ function startScanner(){
     fb.classList.add("show"); state.scanReady=false; return;
   }
   fb.classList.remove("show");
-  if(state.scanner && state.scanReady) return;
+  if(state.scanReady || state.scanStarting) return;
+  state.scanStarting=true;
 
   const fmts = window.Html5QrcodeSupportedFormats ? [
     Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
@@ -853,19 +954,27 @@ function startScanner(){
     Html5QrcodeSupportedFormats.QR_CODE
   ] : undefined;
 
-  try{ state.scanner = state.scanner || new Html5Qrcode("reader",{ formatsToSupport:fmts, verbose:false }); }
-  catch(e){ showFallback("Não foi possível iniciar o leitor."); return; }
+  // espera um stop pendente terminar antes de religar (corrida logout→login rápido)
+  (state.scanStopping || Promise.resolve()).then(()=>{
+    state.scanStopping=null;
+    try{ state.scanner = state.scanner || new Html5Qrcode("reader",{ formatsToSupport:fmts, verbose:false }); }
+    catch(e){ state.scanStarting=false; showFallback("Não foi possível iniciar o leitor."); return; }
 
-  state.scanner.start(
-    { facingMode:"environment" },
-    { fps:10, qrbox:(w,h)=>{ const m=Math.min(w,h); return {width:Math.floor(m*0.78), height:120}; } },
-    onScan,
-    ()=>{}
-  ).then(()=>{ state.scanReady=true; })
-   .catch(err=>{
-     const denied = (""+err).toLowerCase().includes("permission") || (""+err).toLowerCase().includes("notallowed");
-     showFallback(denied ? "Permissão de câmera negada. Digite o código manualmente." : "Câmera indisponível. Digite o código manualmente.");
-   });
+    state.scanner.start(
+      { facingMode:"environment" },
+      { fps:10, qrbox:(w,h)=>{ const m=Math.min(w,h); return {width:Math.floor(m*0.78), height:120}; } },
+      onScan,
+      ()=>{}
+    ).then(()=>{
+      state.scanReady=true; state.scanStarting=false;
+      // se o usuário saiu do caixa enquanto a câmera abria, desliga na hora
+      if(!$("operador").classList.contains("is-active")) stopScanner();
+    }).catch(err=>{
+      state.scanStarting=false;
+      const denied = (""+err).toLowerCase().includes("permission") || (""+err).toLowerCase().includes("notallowed");
+      showFallback(denied ? "Permissão de câmera negada. Digite o código manualmente." : "Câmera indisponível. Digite o código manualmente.");
+    });
+  });
 }
 function showFallback(msg){
   state.scanReady=false;
@@ -874,7 +983,8 @@ function showFallback(msg){
 }
 function stopScanner(){
   if(state.scanner && state.scanReady){
-    try{ state.scanner.stop().then(()=>{ try{state.scanner.clear();}catch(e){} }).catch(()=>{}); }catch(e){}
+    const sc=state.scanner;
+    state.scanStopping = sc.stop().then(()=>{ try{sc.clear();}catch(e){} }).catch(()=>{});
   }
   state.scanReady=false;
 }
@@ -926,7 +1036,7 @@ function changeQty(code,delta){
 }
 function removeItem(code){ state.cart=state.cart.filter(i=>i.code!==code); renderCart(); }
 function clearCart(){ state.cart=[]; renderCart(); }
-function cartTotal(){ return state.cart.reduce((s,i)=>s+i.price*i.qty,0); }
+function cartTotal(){ return round2(state.cart.reduce((s,i)=>s+i.price*i.qty,0)); }
 function cartCount(){ return state.cart.reduce((s,i)=>s+i.qty,0); }
 
 function renderCart(flash){
@@ -940,12 +1050,12 @@ function renderCart(flash){
         <div class="unit">${money(i.price)} cada</div>
       </div>
       <div class="qtybox">
-        <button data-act="minus" data-code="${i.code}">−</button>
+        <button data-act="minus" data-code="${escapeHtml(i.code)}">−</button>
         <div class="q">${i.qty}</div>
-        <button data-act="plus" data-code="${i.code}">+</button>
+        <button data-act="plus" data-code="${escapeHtml(i.code)}">+</button>
       </div>
       <div class="lt">${money(i.price*i.qty)}</div>
-      <button class="del" data-act="del" data-code="${i.code}">✕</button>
+      <button class="del" data-act="del" data-code="${escapeHtml(i.code)}">✕</button>
     </div>`).join("");
 
   const total=cartTotal();
@@ -1002,15 +1112,15 @@ function selectMethod(m){
 }
 function updateChange(){
   const rec=parseMoney($("payReceived").value)||0;
-  $("payChange").textContent=money(Math.max(0, rec-cartTotal()));
+  $("payChange").textContent=money(Math.max(0, round2(rec-cartTotal())));
 }
 function confirmPay(){
   const total=cartTotal();
   let received=total, change=0;
   if(state.pay.method==="dinheiro"){
-    received=parseMoney($("payReceived").value)||0;
+    received=round2(parseMoney($("payReceived").value)||0);
     if(received < total){ toast("Valor recebido menor que o total","bad"); beep("bad"); return; }
-    change=received-total;
+    change=round2(received-total);
   }
   const sale=finalizeSale({ method:state.pay.method, received, change });
   $("payModal").classList.remove("show");
@@ -1133,7 +1243,7 @@ function renderExpAlert(){
   if(!expired && !soon){ el.className="exp-alert"; el.textContent=""; return; }
   const parts=[];
   if(expired) parts.push(expired+" "+(expired===1?"produto vencido":"produtos vencidos"));
-  if(soon)    parts.push(soon+" "+(soon===1?"a vencer":"a vencer"));
+  if(soon)    parts.push(soon+" a vencer");
   el.textContent=(expired?"⚠ ":"⏰ ")+parts.join(" · ");
   el.className="exp-alert show "+(expired?"bad":"warn");
 }
@@ -1148,12 +1258,12 @@ function renderStock(){
   el.innerHTML=list.map(p=>{
     const ec=expClass(p.exp);
     return `
-    <div class="prow ${p.qty<=settings.lowStock?"low":""} ${ec}" data-code="${p.code}">
+    <div class="prow ${p.qty<=settings.lowStock?"low":""} ${ec}" data-code="${escapeHtml(p.code)}">
       <div class="top">
         <input class="pname-input" type="text" data-f="name" value="${escapeHtml(p.name)}" />
         <button class="prow-del" data-act="delprod" title="Excluir produto">✕</button>
       </div>
-      <div class="code-line stockbadge">${p.qty} un · ${p.code}</div>
+      <div class="code-line stockbadge">${p.qty} un · ${escapeHtml(p.code)}</div>
       <div><span class="explabel ${ec}">${escapeHtml(expText(p.exp))}</span></div>
       <div class="edits">
         <div class="e">
@@ -1190,8 +1300,8 @@ function renderSales(){
     const dd=showDate ? d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})+" " : "";
     const n=s.items.reduce((a,i)=>a+i.qty,0);
     const payLabel=s.payment ? (PAY_LABEL[s.payment.method]||s.payment.method||"") : "";
-    return `<div class="sale" data-id="${s.id}">
-      <div class="head" data-toggle="${s.id}">
+    return `<div class="sale" data-id="${escapeHtml(s.id)}">
+      <div class="head" data-toggle="${escapeHtml(s.id)}">
         <div class="meta"><b>${dd}${t}</b> · ${n} ${n===1?"item":"itens"} · ${escapeHtml(s.operator)}${payLabel?" · "+escapeHtml(payLabel):""}</div>
         <div class="amt">${money(s.total)}</div>
       </div>
@@ -1204,6 +1314,8 @@ function renderSales(){
 
 /* ---------- exportar CSV ---------- */
 function csvCell(v){ const s=String(v); return /[";\r\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }
+/* decimal com vírgula: é o que o Excel/LibreOffice pt-BR espera em CSV com ";" */
+function csvNum(v){ return Number(v).toFixed(2).replace(".",","); }
 function exportCsv(){
   const list=filteredSales();
   if(!list.length){ toast("Nada para exportar","bad"); return; }
@@ -1212,7 +1324,7 @@ function exportCsv(){
     const dt=new Date(s.ts).toLocaleString("pt-BR");
     const pay=s.payment ? (PAY_LABEL[s.payment.method]||s.payment.method||"") : "";
     s.items.forEach(i=>{
-      rows.push([dt,s.operator,pay,i.name,i.code,i.qty,i.price.toFixed(2),(i.price*i.qty).toFixed(2),s.total.toFixed(2)]);
+      rows.push([dt,s.operator,pay,i.name,i.code,i.qty,csvNum(i.price),csvNum(i.price*i.qty),csvNum(s.total)]);
     });
   });
   const csv=rows.map(r=>r.map(csvCell).join(";")).join("\r\n");
@@ -1228,20 +1340,20 @@ function exportCsv(){
 /* ---------- sincronização entre abas (cards ao vivo) ---------- */
 async function reloadFromStorage(){
   if(hasArtifactStorage || hasLocalStorage){
-    const p=await sget("pdv:products"), s=await sget("pdv:sales"), st=await sget("pdv:settings"), u=await sget("pdv:users");
-    if(Array.isArray(p)) DB.products=p;
-    if(Array.isArray(s)) DB.sales=s;
-    if(Array.isArray(u) && u.length) DB.users=u;
-    if(st && typeof st.lowStock==="number"){
-      settings.lowStock = st.lowStock;
-      if(typeof st.expWarnDays==="number") settings.expWarnDays = st.expWarnDays;
-    }
+    const p=sanitizeProducts(await sget("pdv:products"));
+    const s=sanitizeSales(await sget("pdv:sales"));
+    const u=sanitizeUsers(await sget("pdv:users"));
+    applySettings(await sget("pdv:settings"));
+    if(p) DB.products=p;
+    if(s) DB.sales=s;
+    if(u && u.length){ DB.users=u; ensureManagerAccess(); }
   }
   if($("gerente").classList.contains("is-active")) renderManager();
   // se um operador está logado, mantém o botão de estoque coerente com a permissão atual
   if(state.user && state.user.role==="operador" && $("operador").classList.contains("is-active")){
     const fresh=DB.users.find(x=>x.username===state.user.username);
-    if(fresh){ state.user=fresh; $("restockBtn").style.display = canAddStock(fresh) ? "" : "none"; }
+    if(!fresh){ toast("Seu acesso foi removido","bad"); logout(); return; }
+    state.user=fresh; $("restockBtn").style.display = canAddStock(fresh) ? "" : "none";
   }
 }
 
@@ -1256,10 +1368,10 @@ function addProduct(){
   if(!/^\d{6,14}$/.test(code)){ err.textContent="Código inválido (use 6 a 14 dígitos)."; return; }
   if(findProduct(code)){ err.textContent="Já existe um produto com esse código."; return; }
   if(!name){ err.textContent="Informe o nome do produto."; return; }
-  if(isNaN(price)||price<=0){ err.textContent="Preço inválido."; return; }
-  if(isNaN(qty)||qty<0){ err.textContent="Quantidade inválida."; return; }
+  if(isNaN(price)||price<=0||price>PRICE_MAX){ err.textContent="Preço inválido (até R$ 999.999,99)."; return; }
+  if(isNaN(qty)||qty<0||qty>QTY_MAX){ err.textContent="Quantidade inválida (0 a 1.000.000)."; return; }
 
-  DB.products.unshift({ code, name, price, qty, exp });
+  DB.products.unshift({ code, name, price:round2(price), qty, exp:isIsoDate(exp)?exp:null });
   saveProducts();
   ["np_code","np_name","np_price","np_qty","np_exp"].forEach(id=>$(id).value="");
   err.textContent="";
@@ -1303,26 +1415,33 @@ function syncRolePerm(){
   $("nu_permLine").classList.toggle("off", isGer);
 }
 
-function addUser(){
-  const name=$("nu_name").value.trim();
-  const username=$("nu_user").value.trim().toLowerCase();
-  const password=$("nu_pass").value;
-  const role=$("nu_role").value==="gerente" ? "gerente" : "operador";
-  const stock = role==="gerente" ? true : $("nu_stock").checked;
-  const err=$("nu_err");
+async function addUser(){
+  if(addUser.busy) return; // evita cadastro duplicado por duplo toque
+  addUser.busy=true;
+  try{
+    const name=$("nu_name").value.trim();
+    const username=$("nu_user").value.trim().toLowerCase();
+    const password=$("nu_pass").value;
+    const role=$("nu_role").value==="gerente" ? "gerente" : "operador";
+    const stock = role==="gerente" ? true : $("nu_stock").checked;
+    const err=$("nu_err");
 
-  if(!name){ err.textContent="Informe o nome do usuário."; return; }
-  if(!/^[a-z0-9._-]{3,20}$/.test(username)){ err.textContent="Usuário: 3 a 20 caracteres (letras, números, . _ -)."; return; }
-  if(DB.users.some(u=>u.username.toLowerCase()===username)){ err.textContent="Já existe um usuário com esse login."; return; }
-  if(!password || password.length<4){ err.textContent="A senha precisa ter ao menos 4 caracteres."; return; }
+    if(!name){ err.textContent="Informe o nome do usuário."; return; }
+    if(!/^[a-z0-9._-]{3,20}$/.test(username)){ err.textContent="Usuário: 3 a 20 caracteres (letras, números, . _ -)."; return; }
+    if(DB.users.some(u=>u.username.toLowerCase()===username)){ err.textContent="Já existe um usuário com esse login."; return; }
+    if(!password || password.length<4){ err.textContent="A senha precisa ter ao menos 4 caracteres."; return; }
 
-  DB.users.push({ username, password, role, name, canAddStock:stock });
-  saveUsers();
-  ["nu_name","nu_user","nu_pass"].forEach(id=>$(id).value="");
-  $("nu_role").value="operador"; $("nu_stock").checked=false; syncRolePerm();
-  err.textContent="";
-  renderUsers();
-  toast("✓ "+name+" cadastrado","ok");
+    const user={ username, role, name, canAddStock:stock };
+    const h=await hashPassword(password);
+    if(h) user.passHash=h; else user.password=password;
+    DB.users.push(user);
+    saveUsers();
+    ["nu_name","nu_user","nu_pass"].forEach(id=>$(id).value="");
+    $("nu_role").value="operador"; $("nu_stock").checked=false; syncRolePerm();
+    err.textContent="";
+    renderUsers();
+    toast("✓ "+name+" cadastrado","ok");
+  }finally{ addUser.busy=false; }
 }
 
 function toggleUserStock(username,allow){
@@ -1369,9 +1488,10 @@ function confirmRestock(){
   const p=findProduct(code);
   if(!p){ err.textContent="Produto não encontrado. Cadastro de novos produtos é feito pela gerência."; return; }
   if(isNaN(add)||add<=0){ err.textContent="Informe uma quantidade válida (maior que zero)."; return; }
+  if(p.qty+add>QTY_MAX){ err.textContent="Limite de estoque excedido (máx. 1.000.000 un)."; return; }
   p.qty+=add;
-  const exp=$("rs_exp").value||null;
-  if(exp) p.exp=exp;   // registra a validade da mercadoria que entrou
+  const exp=$("rs_exp").value;
+  if(isIsoDate(exp)) p.exp=exp;   // registra a validade da mercadoria que entrou
   saveProducts();
   if($("gerente").classList.contains("is-active")) renderStock();
   closeRestock();
@@ -1410,6 +1530,9 @@ function updateManual(){
    WIRING (eventos)
    ================================================================ */
 function wire(){
+  if(wire.wired) return; // nunca duplica listeners (ex.: recuperação de erro do boot)
+  wire.wired=true;
+
   // login
   $("loginBtn").addEventListener("click", login);
   $("loginPass").addEventListener("keydown", e=>{ if(e.key==="Enter") login(); });
@@ -1425,8 +1548,11 @@ function wire(){
     $("muteBtn").textContent=state.muted?"🔇":"🔊";
   });
 
-  // câmera fallback
-  $("retryCam").addEventListener("click", ()=>{ state.scanner=null; startScanner(); });
+  // câmera fallback (só descarta a instância se ela não estiver ligando/ligada)
+  $("retryCam").addEventListener("click", ()=>{
+    if(!state.scanReady && !state.scanStarting) state.scanner=null;
+    startScanner();
+  });
   $("manualBtn2").addEventListener("click", openManual);
 
   // carrinho (delegação)
@@ -1490,12 +1616,12 @@ function wire(){
       const v=inp.value.trim(); if(!v){ inp.value=p.name; return; }
       p.name=v; inp.value=v;
     }else if(inp.dataset.f==="price"){
-      const v=parseMoney(inp.value); if(isNaN(v)||v<0){ inp.value=p.price.toFixed(2); return; }
-      p.price=v; inp.value=v.toFixed(2);
+      const v=parseMoney(inp.value); if(isNaN(v)||v<0||v>PRICE_MAX){ inp.value=p.price.toFixed(2); return; }
+      p.price=round2(v); inp.value=p.price.toFixed(2);
     }else if(inp.dataset.f==="exp"){
-      p.exp=inp.value||null;
+      p.exp=isIsoDate(inp.value)?inp.value:null;
     }else{
-      const v=parseInt(inp.value,10); if(isNaN(v)||v<0){ inp.value=p.qty; return; }
+      const v=parseInt(inp.value,10); if(isNaN(v)||v<0||v>QTY_MAX){ inp.value=p.qty; return; }
       p.qty=v;
     }
     saveProducts();
@@ -1607,7 +1733,11 @@ if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){
 }
 
 /* ---------- start ---------- */
-boot();
+boot().catch(()=>{
+  // mesmo com falha inesperada na carga, a interface precisa responder
+  try{ wire(); }catch(e){}
+  markStorageFailure();
+});
 </script>
 </body>
 </html>

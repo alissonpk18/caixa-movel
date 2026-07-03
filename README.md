@@ -67,8 +67,10 @@ primeira visita, o app abre **offline**.
 
 ## Limitações (por ser uma demo client-side)
 
-- **Autenticação** é apenas demonstrativa (sem backend; senhas no cliente). Não
-  use as credenciais padrão em produção.
+- **Autenticação** é apenas demonstrativa (sem backend). As senhas são
+  guardadas como **hash SHA-256** quando o navegador suporta (HTTPS ou
+  `localhost` — o mesmo requisito da câmera), mas os dados continuam no
+  cliente. Não use as credenciais padrão em produção.
 - Os dados ficam **no dispositivo/navegador** — não há sincronização em nuvem
   nem entre aparelhos diferentes.
 - A câmera exige **HTTPS** (ou `localhost`) e permissão do usuário.
