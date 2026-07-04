@@ -1,0 +1,9 @@
+{
+  "name": "caixa-movel",
+  "private": true,
+  "description": "PDV mobile 100% client-side (PWA). Sem build e sem dependências — o package.json existe só para rodar os testes.",
+  "scripts": {
+    "test": "node --test",
+    "test:e2e": "node tests/e2e/regression.e2e.mjs && node tests/e2e/features.e2e.mjs"
+  }
+}

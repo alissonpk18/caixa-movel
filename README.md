@@ -9,18 +9,29 @@ barras pela câmera, controle de estoque e relatórios de vendas. Funciona como
 ## Funcionalidades
 
 - **Login** com perfis de **operador** (caixa) e **gerência**.
-- **Caixa**: leitura de código de barras pela câmera (com fallback de teclado
-  manual), carrinho com ajuste de quantidade e validação de estoque.
-- **Pagamento**: Dinheiro (com cálculo de **troco**), Cartão e Pix, com
-  **comprovante** imprimível.
+- **Caixa**: leitura de código de barras pela câmera (**BarcodeDetector nativo**
+  quando disponível, com fallback para html5-qrcode e teclado manual), suporte a
+  **leitor físico USB/Bluetooth** (modo teclado), carrinho com ajuste de
+  quantidade e validação de estoque.
+- **Pagamento**: Dinheiro (com cálculo de **troco**), Cartão e **Pix com QR Code
+  e "copia e cola" gerados no aparelho** (BR Code EMV com o valor da venda —
+  basta a gerência cadastrar a chave Pix; sem backend e sem taxas), com
+  **comprovante** imprimível e **compartilhável** (WhatsApp etc.).
+- **Controle de caixa**: abertura com **fundo de troco**, **sangria** e
+  **reforço**, fechamento com **conferência** (esperado × contado) e histórico
+  de fechamentos na gerência.
 - **Gerência**:
   - Estoque: cadastrar, **editar nome/preço/quantidade** e **excluir** produtos,
     com **busca** e **alerta de estoque baixo configurável**.
   - **Controle de validade**: cada produto pode ter uma **data de validade**;
     o app destaca itens **vencidos** e **a vencer**, mostra um **resumo no topo
     do estoque** e permite ajustar **com quantos dias de antecedência** avisar.
-  - Vendas: **histórico com filtro por data**, totais do período e
-    **exportação para CSV**.
+  - Vendas: **histórico com filtro por data**, totais do período, **ticket
+    médio**, **curva ABC** dos produtos (com **lucro** quando o custo do produto
+    é informado) e **exportação para CSV**.
+  - Estoque: aviso de **reposição** ("estoque para ~X dias") calculado pela
+    média de vendas dos últimos 14 dias.
+  - **Backup**: exportação/importação de todos os dados em JSON.
   - Usuários: **cadastrar caixas e gerentes**, definir login/senha e conceder a
     **permissão de adicionar itens ao estoque** a cada caixa (com remoção de
     usuários e travas para não excluir a si mesmo nem o último gerente).
@@ -60,10 +71,25 @@ primeira visita, o app abre **offline**.
 
 | Arquivo                    | Função                                         |
 |----------------------------|------------------------------------------------|
-| `pdv-mobile.html`          | App completo (UI + lógica).                     |
+| `index.html`               | Redireciona a raiz para o app (URL limpa).      |
+| `pdv-mobile.html`          | App completo (UI + lógica de tela).             |
+| `pdv-core.js`              | Núcleo de regras de negócio (puro, testável).   |
+| `qrcode.min.js`            | Gerador de QR Code local (qrcode-generator, MIT).|
 | `manifest.webmanifest`     | Metadados do PWA.                               |
 | `sw.js`                    | Service worker (cache/offline).                |
 | `icon-*.png`               | Ícones do app.                                  |
+| `tests/`                   | Testes unitários (`npm test`) e E2E (Playwright).|
+
+## Testes
+
+```bash
+# unitários (Node 20+, sem dependências)
+npm test
+
+# ponta a ponta (requer: npm i -D playwright, servidor local rodando)
+python3 -m http.server 8899 &
+npm run test:e2e   # PDV_URL e CHROMIUM_PATH são configuráveis por env
+```
 
 ## Limitações (por ser uma demo client-side)
 

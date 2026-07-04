@@ -14,7 +14,12 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="PDV Caixa" />
 
-<!-- Leitor de código de barras (câmera). Carregado do CDN com verificação de integridade (SRI).
+<!-- Núcleo de regras de negócio (window.PDV) — também usado pelos testes unitários -->
+<script src="./pdv-core.js"></script>
+<!-- Gerador de QR Code local (qrcode-generator, MIT) — usado no Pix da finalização -->
+<script src="./qrcode.min.js"></script>
+<!-- Leitor de código de barras (câmera). Fallback para quando a BarcodeDetector API
+     nativa não existe. Carregado do CDN com verificação de integridade (SRI).
      Se não carregar, o app cai no teclado manual automaticamente. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"
         integrity="sha384-c9d8RFSL+u3exBOJ4Yp3HUJXS4znl9f+z66d1y54ig+ea249SpqR+w1wyvXz/lk+"
@@ -441,6 +446,7 @@
       <div class="who" id="opName">Caixa<small>Operador</small></div>
       <div class="grow"></div>
       <button class="iconbtn" id="restockBtn" title="Adicionar ao estoque" style="display:none">+Estoque</button>
+      <button class="iconbtn" id="cashBtn" title="Controle de caixa">Caixa</button>
       <button class="iconbtn" id="muteBtn" title="Som" aria-label="Ativar ou silenciar o som">🔊</button>
       <button class="iconbtn" id="logoutOp">Sair</button>
     </div>
@@ -513,6 +519,7 @@
             <input class="full" id="np_name" type="text" placeholder="Nome do produto" />
             <input id="np_price" type="tel" inputmode="decimal" placeholder="Preço (R$)" />
             <input id="np_qty" type="tel" inputmode="numeric" placeholder="Quantidade" />
+            <input class="full" id="np_cost" type="tel" inputmode="decimal" placeholder="Custo (R$) — opcional, para ver a margem" />
           </div>
           <div class="exp-edit" style="margin-top:10px">
             <label for="np_exp">Validade (opcional)</label>
@@ -532,6 +539,17 @@
 
       <!-- VENDAS -->
       <div class="panel" id="panelVendas">
+        <div class="addbox">
+          <div class="sectitle" style="margin-top:0">Recebimento Pix</div>
+          <div class="grid">
+            <input class="full" id="pix_key" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="Chave Pix (CPF, e-mail, telefone ou aleatória)" />
+            <input id="pix_name" type="text" maxlength="25" placeholder="Nome do recebedor" />
+            <input id="pix_city" type="text" maxlength="15" placeholder="Cidade" />
+          </div>
+          <div class="err" id="pix_err"></div>
+          <button class="btn btn-primary" id="pixSaveBtn" style="margin-top:10px">Salvar Pix</button>
+        </div>
+
         <div class="sectitle">Vendas</div>
         <div class="sales-filter">
           <input type="date" id="salesDate" />
@@ -540,6 +558,12 @@
         </div>
         <div class="sales-summary" id="salesSummary"></div>
         <div id="salesList"></div>
+
+        <div class="sectitle" style="margin-top:20px">Top produtos do período (curva ABC)</div>
+        <div id="abcList"></div>
+
+        <div class="sectitle" style="margin-top:20px">Fechamentos de caixa</div>
+        <div id="cashHistList"></div>
       </div>
 
       <!-- USUÁRIOS -->
@@ -565,6 +589,17 @@
 
         <div class="sectitle">Usuários cadastrados</div>
         <div id="userList"></div>
+
+        <div class="addbox" style="margin-top:20px">
+          <div class="sectitle" style="margin-top:0">Dados e backup</div>
+          <p style="margin:0 0 10px;font-size:12.5px;color:var(--muted)">Os dados ficam só neste aparelho. Exporte um backup com frequência.</p>
+          <div style="display:flex;gap:10px">
+            <button class="btn btn-ghost" id="backupExport" style="flex:1">Exportar backup</button>
+            <button class="btn btn-primary" id="backupImportBtn" style="flex:1">Importar</button>
+          </div>
+          <input type="file" id="backupFile" accept=".json,application/json" style="display:none" />
+          <div class="err" id="backupErr"></div>
+        </div>
       </div>
     </div>
   </section>
@@ -604,6 +639,12 @@
         <input id="payReceived" type="tel" inputmode="decimal" placeholder="0,00" />
         <div class="pay-change">Troco: <b id="payChange">R$ 0,00</b></div>
       </div>
+      <div id="payPixWrap" style="display:none;text-align:center">
+        <div id="pixQr" style="display:flex;justify-content:center;margin:4px 0 8px"></div>
+        <div id="pixCode" style="font-family:var(--mono);font-size:10.5px;word-break:break-all;color:var(--muted);max-height:52px;overflow-y:auto;margin-bottom:8px;-webkit-user-select:text;user-select:text"></div>
+        <button class="btn btn-ghost" id="pixCopyBtn" style="margin-bottom:4px">Copiar código Pix</button>
+        <div class="err" id="pixPayErr"></div>
+      </div>
       <div class="mactions">
         <button class="btn btn-ghost" id="payClose">Voltar</button>
         <button class="btn btn-ok" id="payConfirm">Confirmar pagamento</button>
@@ -619,6 +660,7 @@
       <div class="receipt" id="receiptBox"></div>
       <div class="mactions">
         <button class="btn btn-ghost" id="receiptClose">Fechar</button>
+        <button class="btn btn-ok" id="receiptShare">Enviar</button>
         <button class="btn btn-primary" id="receiptPrint">Imprimir</button>
       </div>
     </div>
@@ -642,6 +684,48 @@
     </div>
   </div>
 
+  <!-- ============ CAIXA (abertura, sangria/reforço, fechamento) ============ -->
+  <div class="modal" id="cashModal" role="dialog" aria-modal="true" aria-labelledby="cashTitle">
+    <div class="sheet">
+      <h3 id="cashTitle">Controle de caixa</h3>
+      <div id="cashClosed">
+        <p class="sub">Abra o caixa para acompanhar o dinheiro da gaveta durante o turno.</p>
+        <label for="cash_float" style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin:0 2px 5px">Fundo de troco (R$)</label>
+        <input id="cash_float" class="fld" type="tel" inputmode="decimal" autocomplete="off" placeholder="0,00" />
+        <div class="err" id="cash_err1"></div>
+        <div class="mactions">
+          <button class="btn btn-ghost" id="cashDismiss1">Fechar</button>
+          <button class="btn btn-primary" id="cashOpenBtn">Abrir caixa</button>
+        </div>
+      </div>
+      <div id="cashOpen" style="display:none">
+        <p class="sub" id="cashInfo"></p>
+        <div class="receipt" id="cashSummary" style="max-height:34vh"></div>
+        <input id="cash_mov" class="fld" type="tel" inputmode="decimal" autocomplete="off" placeholder="Valor da sangria / reforço (R$)" />
+        <div class="err" id="cash_err2"></div>
+        <div class="mactions">
+          <button class="btn btn-bad" id="cashSangria">Sangria −</button>
+          <button class="btn btn-ghost" id="cashReforco">Reforço +</button>
+        </div>
+        <div class="mactions">
+          <button class="btn btn-ghost" id="cashDismiss2">Voltar</button>
+          <button class="btn btn-ok" id="cashStartClose">Fechar caixa</button>
+        </div>
+      </div>
+      <div id="cashClosing" style="display:none">
+        <p class="sub">Conte o dinheiro da gaveta para conferir e fechar.</p>
+        <div class="receipt" id="cashExpectBox" style="max-height:26vh"></div>
+        <label for="cash_counted" style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin:0 2px 5px">Valor contado na gaveta (R$)</label>
+        <input id="cash_counted" class="fld" type="tel" inputmode="decimal" autocomplete="off" placeholder="0,00" />
+        <div class="err" id="cash_err3"></div>
+        <div class="mactions">
+          <button class="btn btn-ghost" id="cashBackBtn">Voltar</button>
+          <button class="btn btn-ok" id="cashConfirmClose">Confirmar fechamento</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ CONFIRMAÇÃO ============ -->
   <div class="modal" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
     <div class="sheet">
@@ -659,6 +743,11 @@
 
 <script>
 "use strict";
+/* o núcleo é um arquivo local; se não carregou, algo está muito errado — avisa em vez de tela branca */
+if(!window.PDV){
+  document.body.innerHTML='<p style="padding:24px;font-family:sans-serif">Erro ao carregar o app (pdv-core.js). Recarregue a página.</p>';
+  throw new Error("pdv-core.js ausente");
+}
 /* ================================================================
    PDV MOBILE — app de uma página só (SPA), tudo client-side.
    Persistência: usa o storage do artifact (window.storage) quando
@@ -668,18 +757,16 @@
 /* ---------- helpers ---------- */
 const $ = (id) => document.getElementById(id);
 const money = (v) => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
-/* aceita "1.234,56", "5,49", "5.49", "R$ 5,49" → número. Vírgula = decimal (padrão BR). */
-function parseMoney(str){
-  let s = String(str==null?"":str).trim().replace(/(R\$|\s)/gi,"");
-  if(!s) return NaN;
-  if(s.indexOf(",")>-1) s = s.replace(/\./g,"").replace(/,/g,".");
-  if(!/^-?\d*\.?\d+$/.test(s)) return NaN;
-  return parseFloat(s);
-}
-/* arredonda para centavos — dinheiro nunca compara/acumula float cru */
-const round2 = (v) => Math.round((v + Number.EPSILON) * 100) / 100;
+/* regras de negócio puras vêm do núcleo compartilhado (pdv-core.js) */
+const {
+  QTY_MAX, PRICE_MAX, round2, parseMoney, escapeHtml, csvCell, csvNum,
+  isIsoDate, keyToIso, isoToKey, dateKey, daysUntilExp,
+  sanitizeSettings, sanitizeUsers, sanitizeProducts, sanitizeCash,
+  pixPayload, sessionSales, cashExpected, salesSummary, abcAnalysis, dailyAvgMap, daysOfStock
+} = window.PDV;
 const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "id-"+Date.now()+"-"+Math.random().toString(16).slice(2);
-const todayKey = (d=new Date()) => d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
+const sanitizeSales = (list) => window.PDV.sanitizeSales(list, uid);
+const todayKey = (d=new Date()) => dateKey(d);
 const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /* ---------- camada de dados ----------
@@ -690,13 +777,11 @@ let hasLocalStorage = false;
 try{ const k="__pdv_test__"; window.localStorage.setItem(k,"1"); window.localStorage.removeItem(k); hasLocalStorage=true; }catch(e){ hasLocalStorage=false; }
 let storageOK = hasArtifactStorage || hasLocalStorage;
 
-const DB = { users:[], products:[], sales:[] };
-const QTY_MAX   = 1000000;    // teto de estoque por produto
-const PRICE_MAX = 999999.99;  // teto de preço unitário
-let settings = { lowStock:5, expWarnDays:30 };
+const DB = { users:[], products:[], sales:[], cash:{ open:null, history:[] } };
+let settings = { lowStock:5, expWarnDays:30, pixKey:"", pixName:"", pixCity:"" };
 let salesFilter = todayKey();   // chave de data selecionada; null = todas
 let prodQuery = "";
-let state = { user:null, cart:[], muted:false, scanner:null, scanReady:false, scanStarting:false, scanStopping:null, lastScan:{code:"",t:0}, audio:null, pay:{method:"dinheiro"} };
+let state = { user:null, cart:[], muted:false, scanner:null, native:null, scanReady:false, scanStarting:false, scanStopping:null, lastScan:{code:"",t:0}, audio:null, pay:{method:"dinheiro"}, lastSale:null };
 
 const SEED_USERS = [
   { username:"gerente", password:"1234", role:"gerente",  name:"Gerência", canAddStock:true },
@@ -738,62 +823,8 @@ function markStorageFailure(){
   [$("storageBanner"),$("storageBanner2")].forEach(b=>{ if(b){ b.textContent=txt; b.classList.add("show"); } });
 }
 
-/* ---------- saneamento dos dados carregados ----------
-   O storage pode conter dados de versões antigas ou corrompidos (edição
-   manual, quota parcial). Tudo que entra no app passa por aqui para que
-   um registro inválido nunca derrube a interface. */
-function isIsoDate(v){ return typeof v==="string" && /^\d{4}-\d{2}-\d{2}$/.test(v); }
-function applySettings(st){
-  if(!st || typeof st!=="object") return;
-  if(typeof st.lowStock==="number" && isFinite(st.lowStock) && st.lowStock>=0) settings.lowStock=Math.floor(st.lowStock);
-  if(typeof st.expWarnDays==="number" && isFinite(st.expWarnDays) && st.expWarnDays>=0) settings.expWarnDays=Math.floor(st.expWarnDays);
-}
-function sanitizeUsers(list){
-  if(!Array.isArray(list)) return null;
-  const seen=new Set(), out=[];
-  list.forEach(u=>{
-    if(!u || typeof u!=="object") return;
-    const username=String(u.username||"").trim().toLowerCase();
-    if(!username || seen.has(username)) return;
-    if(typeof u.password!=="string" && typeof u.passHash!=="string") return;
-    seen.add(username);
-    const clean={ username, role:u.role==="gerente"?"gerente":"operador",
-      name:String(u.name||username), canAddStock:u.canAddStock===true };
-    if(typeof u.passHash==="string" && u.passHash) clean.passHash=u.passHash;
-    else clean.password=u.password;
-    out.push(clean);
-  });
-  return out;
-}
-function sanitizeProducts(list){
-  if(!Array.isArray(list)) return null;
-  const seen=new Set(), out=[];
-  list.forEach(p=>{
-    if(!p || typeof p!=="object") return;
-    const code=String(p.code==null?"":p.code).trim();
-    const price=Number(p.price), qty=Math.floor(Number(p.qty));
-    if(!code || seen.has(code) || !isFinite(price) || price<0 || !isFinite(qty) || qty<0) return;
-    seen.add(code);
-    out.push({ code, name:String(p.name||code), price:round2(Math.min(price,PRICE_MAX)),
-      qty:Math.min(qty,QTY_MAX), exp:isIsoDate(p.exp)?p.exp:null });
-  });
-  return out;
-}
-function sanitizeSales(list){
-  if(!Array.isArray(list)) return null;
-  return list
-    .filter(s=>s && typeof s==="object" && typeof s.ts==="string" &&
-      !isNaN(Date.parse(s.ts)) && Array.isArray(s.items) && isFinite(Number(s.total)))
-    .map(s=>({
-      id:String(s.id||uid()), ts:s.ts, operator:String(s.operator||"—"), total:round2(Number(s.total)),
-      items:s.items.filter(i=>i&&typeof i==="object").map(i=>({
-        code:String(i.code==null?"":i.code), name:String(i.name||"?"),
-        price:Number(i.price)||0, qty:Number(i.qty)||0 })),
-      payment: s.payment && typeof s.payment==="object"
-        ? { method:String(s.payment.method||"—"), received:Number(s.payment.received)||0, change:Number(s.payment.change)||0 }
-        : null
-    }));
-}
+/* aplica só os campos válidos vindos do storage sobre os padrões atuais */
+function applySettings(st){ Object.assign(settings, sanitizeSettings(st)); }
 /* garante que sempre exista ao menos um acesso de gerência (evita trancar o app) */
 function ensureManagerAccess(){
   if(DB.users.some(u=>u.role==="gerente")) return;
@@ -803,6 +834,8 @@ function ensureManagerAccess(){
 const saveProducts = () => sset("pdv:products", DB.products);
 const saveSales    = () => sset("pdv:sales", DB.sales);
 const saveUsers    = () => sset("pdv:users", DB.users);
+const saveCash     = () => sset("pdv:cash", DB.cash);
+const saveSettings = () => sset("pdv:settings", settings);
 const saveSession  = () => sset("pdv:session", state.user ? {username:state.user.username, role:state.user.role, name:state.user.name} : null);
 
 async function boot(){
@@ -810,6 +843,7 @@ async function boot(){
     DB.users    = sanitizeUsers(await sget("pdv:users"));
     DB.products = sanitizeProducts(await sget("pdv:products"));
     DB.sales    = sanitizeSales(await sget("pdv:sales"));
+    DB.cash     = sanitizeCash(await sget("pdv:cash")) || { open:null, history:[] };
     applySettings(await sget("pdv:settings"));
   }
   if(!Array.isArray(DB.users)   || !DB.users.length){ DB.users = SEED_USERS.map(u=>({...u})); await saveUsers(); }
@@ -937,16 +971,60 @@ function logout(){
 /* ================================================================
    LEITOR DE CÓDIGO DE BARRAS
    ================================================================ */
+const isDeniedErr = (err)=>{
+  const s=((err&&err.name)||""+err).toLowerCase();
+  return s.includes("notallowed")||s.includes("permission");
+};
 function startScanner(){
-  const fb=$("scanFallback");
-  if(typeof Html5Qrcode==="undefined"){
-    $("fallbackMsg").textContent="Leitor de câmera não carregou. Digite o código manualmente.";
-    fb.classList.add("show"); state.scanReady=false; return;
-  }
-  fb.classList.remove("show");
+  $("scanFallback").classList.remove("show");
   if(state.scanReady || state.scanStarting) return;
   state.scanStarting=true;
 
+  // espera um stop pendente terminar antes de religar (corrida logout→login rápido)
+  (state.scanStopping || Promise.resolve()).then(()=>{
+    state.scanStopping=null;
+    // 1ª escolha: BarcodeDetector nativo (rápido, sem dependência externa);
+    // 2ª: html5-qrcode do CDN; 3ª: teclado manual.
+    startNativeScanner().catch(err=>{
+      if(isDeniedErr(err)){ state.scanStarting=false; showFallback("Permissão de câmera negada. Digite o código manualmente."); return; }
+      startLibScanner();
+    });
+  });
+}
+async function startNativeScanner(){
+  if(!("BarcodeDetector" in window)) throw new Error("unsupported");
+  const wanted=["ean_13","ean_8","upc_a","upc_e","code_128","code_39","qr_code"];
+  let supported=[];
+  try{ supported=await window.BarcodeDetector.getSupportedFormats(); }catch(e){}
+  const formats=wanted.filter(f=>supported.includes(f));
+  if(!formats.length) throw new Error("unsupported");
+  const stream=await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" }, audio:false });
+  const video=document.createElement("video");
+  video.setAttribute("playsinline",""); video.muted=true; video.srcObject=stream;
+  video.style.cssText="width:100%;height:100%;object-fit:cover";
+  $("reader").innerHTML=""; $("reader").appendChild(video);
+  await video.play();
+  const detector=new window.BarcodeDetector({ formats });
+  state.native={ stream, video, timer:0 };
+  const tick=async ()=>{
+    const n=state.native; if(!n) return;
+    try{
+      const found=await detector.detect(n.video);
+      if(found && found.length && found[0].rawValue) onScan(String(found[0].rawValue));
+    }catch(e){ /* quadro ainda não pronto: tenta no próximo tick */ }
+    if(state.native) state.native.timer=setTimeout(tick,140);
+  };
+  tick();
+  state.scanReady=true; state.scanStarting=false;
+  // se o usuário saiu do caixa enquanto a câmera abria, desliga na hora
+  if(!$("operador").classList.contains("is-active")) stopScanner();
+}
+function startLibScanner(){
+  if(typeof Html5Qrcode==="undefined"){
+    state.scanStarting=false;
+    showFallback("Leitor de câmera não carregou. Digite o código manualmente.");
+    return;
+  }
   const fmts = window.Html5QrcodeSupportedFormats ? [
     Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
     Html5QrcodeSupportedFormats.UPC_A,  Html5QrcodeSupportedFormats.UPC_E,
@@ -954,26 +1032,20 @@ function startScanner(){
     Html5QrcodeSupportedFormats.QR_CODE
   ] : undefined;
 
-  // espera um stop pendente terminar antes de religar (corrida logout→login rápido)
-  (state.scanStopping || Promise.resolve()).then(()=>{
-    state.scanStopping=null;
-    try{ state.scanner = state.scanner || new Html5Qrcode("reader",{ formatsToSupport:fmts, verbose:false }); }
-    catch(e){ state.scanStarting=false; showFallback("Não foi possível iniciar o leitor."); return; }
+  try{ state.scanner = state.scanner || new Html5Qrcode("reader",{ formatsToSupport:fmts, verbose:false }); }
+  catch(e){ state.scanStarting=false; showFallback("Não foi possível iniciar o leitor."); return; }
 
-    state.scanner.start(
-      { facingMode:"environment" },
-      { fps:10, qrbox:(w,h)=>{ const m=Math.min(w,h); return {width:Math.floor(m*0.78), height:120}; } },
-      onScan,
-      ()=>{}
-    ).then(()=>{
-      state.scanReady=true; state.scanStarting=false;
-      // se o usuário saiu do caixa enquanto a câmera abria, desliga na hora
-      if(!$("operador").classList.contains("is-active")) stopScanner();
-    }).catch(err=>{
-      state.scanStarting=false;
-      const denied = (""+err).toLowerCase().includes("permission") || (""+err).toLowerCase().includes("notallowed");
-      showFallback(denied ? "Permissão de câmera negada. Digite o código manualmente." : "Câmera indisponível. Digite o código manualmente.");
-    });
+  state.scanner.start(
+    { facingMode:"environment" },
+    { fps:10, qrbox:(w,h)=>{ const m=Math.min(w,h); return {width:Math.floor(m*0.78), height:120}; } },
+    onScan,
+    ()=>{}
+  ).then(()=>{
+    state.scanReady=true; state.scanStarting=false;
+    if(!$("operador").classList.contains("is-active")) stopScanner();
+  }).catch(err=>{
+    state.scanStarting=false;
+    showFallback(isDeniedErr(err) ? "Permissão de câmera negada. Digite o código manualmente." : "Câmera indisponível. Digite o código manualmente.");
   });
 }
 function showFallback(msg){
@@ -982,7 +1054,13 @@ function showFallback(msg){
   $("scanFallback").classList.add("show");
 }
 function stopScanner(){
-  if(state.scanner && state.scanReady){
+  if(state.native){
+    const n=state.native; state.native=null;
+    clearTimeout(n.timer);
+    try{ n.stream.getTracks().forEach(t=>t.stop()); }catch(e){}
+    try{ n.video.remove(); }catch(e){}
+    state.scanStopping=Promise.resolve();
+  }else if(state.scanner && state.scanReady){
     const sc=state.scanner;
     state.scanStopping = sc.stop().then(()=>{ try{sc.clear();}catch(e){} }).catch(()=>{});
   }
@@ -1101,6 +1179,7 @@ function openPay(){
   $("payMethods").querySelectorAll("button").forEach(b=>b.classList.toggle("active", b.dataset.m==="dinheiro"));
   $("payReceived").value="";
   $("payCashWrap").style.display="block";
+  $("payPixWrap").style.display="none";
   updateChange();
   $("payModal").classList.add("show");
   setTimeout(()=>{ try{ $("payReceived").focus(); }catch(e){} },120);
@@ -1109,6 +1188,68 @@ function selectMethod(m){
   state.pay.method=m;
   $("payMethods").querySelectorAll("button").forEach(b=>b.classList.toggle("active", b.dataset.m===m));
   $("payCashWrap").style.display = m==="dinheiro" ? "block" : "none";
+  $("payPixWrap").style.display = m==="pix" ? "block" : "none";
+  if(m==="pix") renderPixPay();
+}
+
+/* ---------- Pix na finalização (BR Code estático com o valor da venda) ---------- */
+function renderPixPay(){
+  const qrEl=$("pixQr"), codeEl=$("pixCode"), err=$("pixPayErr"), copy=$("pixCopyBtn");
+  qrEl.innerHTML=""; codeEl.textContent=""; err.textContent=""; copy.style.display="none";
+  if(!settings.pixKey || !settings.pixName){
+    err.textContent="Chave Pix não configurada — peça à gerência (aba Vendas).";
+    return;
+  }
+  const payload=pixPayload({ key:settings.pixKey, name:settings.pixName, city:settings.pixCity, amount:cartTotal() });
+  if(!payload){ err.textContent="Configuração Pix inválida — revise na gerência."; return; }
+  state.pay.pixCode=payload;
+  codeEl.textContent=payload;
+  copy.style.display="";
+  if(typeof qrcode==="function"){
+    try{
+      const qr=qrcode(0,"M"); qr.addData(payload); qr.make();
+      qrEl.innerHTML=qr.createSvgTag({cellSize:3,margin:3,scalable:true});
+      const svg=qrEl.querySelector("svg");
+      if(svg){ svg.style.width="min(52vw,210px)"; svg.style.height="auto"; svg.style.background="#fff"; svg.style.borderRadius="10px"; }
+    }catch(e){ /* sem QR: o copia e cola continua disponível */ }
+  }
+}
+async function copyPixCode(){
+  const code=state.pay.pixCode||"";
+  if(!code) return;
+  let ok=false;
+  try{ await navigator.clipboard.writeText(code); ok=true; }catch(e){}
+  if(!ok){
+    // fallback para navegadores sem clipboard API em contexto não seguro
+    try{
+      const ta=document.createElement("textarea");
+      ta.value=code; ta.style.position="fixed"; ta.style.opacity="0";
+      document.body.appendChild(ta); ta.select();
+      ok=document.execCommand("copy");
+      document.body.removeChild(ta);
+    }catch(e){}
+  }
+  toast(ok?"✓ Código Pix copiado":"Não foi possível copiar — selecione o texto", ok?"ok":"bad");
+}
+function savePixConfig(){
+  const err=$("pix_err");
+  const key=$("pix_key").value.trim();
+  const name=$("pix_name").value.trim();
+  const city=$("pix_city").value.trim();
+  if(!key && !name && !city){
+    // limpa a configuração (desativa o Pix na finalização)
+    settings.pixKey=""; settings.pixName=""; settings.pixCity="";
+    saveSettings(); err.textContent="";
+    toast("Configuração Pix removida","bad");
+    return;
+  }
+  if(!key || key.length>77){ err.textContent="Informe a chave Pix (até 77 caracteres)."; return; }
+  if(!name){ err.textContent="Informe o nome do recebedor (como no banco)."; return; }
+  if(!pixPayload({key, name, city, amount:1})){ err.textContent="Dados inválidos para o BR Code."; return; }
+  settings.pixKey=key; settings.pixName=name; settings.pixCity=city;
+  saveSettings();
+  err.textContent="";
+  toast("✓ Pix configurado","ok");
 }
 function updateChange(){
   const rec=parseMoney($("payReceived").value)||0;
@@ -1129,6 +1270,7 @@ function confirmPay(){
 
 /* ---------- comprovante ---------- */
 function showReceipt(sale){
+  state.lastSale=sale;
   const t=new Date(sale.ts).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
   const pay=sale.payment||{method:"—"};
   const methodLabel=PAY_LABEL[pay.method]||pay.method||"—";
@@ -1166,6 +1308,77 @@ function printReceipt(){
   w.document.close();
 }
 
+/* ---------- comprovante em texto (para enviar por WhatsApp etc.) ---------- */
+function receiptText(sale){
+  const t=new Date(sale.ts).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+  const pay=sale.payment||{method:"—"};
+  const label=PAY_LABEL[pay.method]||pay.method||"—";
+  const lines=sale.items.map(i=>i.name+" x"+i.qty+"  "+money(i.price*i.qty)).join("\n");
+  let extra="";
+  if(pay.method==="dinheiro") extra="\nRecebido: "+money(pay.received)+"\nTroco: "+money(pay.change);
+  return "PDV · Caixa Rápido\n"+t+"\nOperador: "+sale.operator+
+    "\n────────────────\n"+lines+
+    "\n────────────────\nTOTAL "+money(sale.total)+
+    "\nPagamento: "+label+extra+
+    "\n\nObrigado pela preferência!";
+}
+async function shareReceipt(){
+  const sale=state.lastSale;
+  if(!sale) return;
+  const text=receiptText(sale);
+  if(navigator.share){
+    try{ await navigator.share({ text }); return; }
+    catch(e){ if(e && e.name==="AbortError") return; } // usuário cancelou
+  }
+  try{ await navigator.clipboard.writeText(text); toast("✓ Comprovante copiado — cole onde quiser","ok"); }
+  catch(e){ toast("Não foi possível compartilhar neste navegador","bad"); }
+}
+
+/* ---------- backup: exportar/importar tudo em JSON ---------- */
+function exportBackup(){
+  const data={
+    app:"pdv-caixa-rapido", version:1, exportedAt:new Date().toISOString(),
+    users:DB.users, products:DB.products, sales:DB.sales, cash:DB.cash, settings
+  };
+  const blob=new Blob([JSON.stringify(data,null,1)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url; a.download="pdv-backup-"+keyToIso(todayKey())+".json";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  toast("✓ Backup exportado","ok");
+}
+function importBackup(file){
+  const err=$("backupErr"); err.textContent="";
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onerror=()=>{ err.textContent="Não foi possível ler o arquivo."; };
+  reader.onload=()=>{
+    let data=null;
+    try{ data=JSON.parse(String(reader.result)); }catch(e){}
+    if(!data || typeof data!=="object"){ err.textContent="Arquivo inválido (não é um backup do PDV)."; return; }
+    const users=sanitizeUsers(data.users);
+    const products=sanitizeProducts(data.products);
+    const sales=sanitizeSales(data.sales);
+    const cash=sanitizeCash(data.cash);
+    if(!users || !users.length || !products || !sales){
+      err.textContent="Backup incompleto ou corrompido — nada foi alterado."; return;
+    }
+    askConfirm("Importar backup",
+      "Substituir TODOS os dados atuais pelos do arquivo ("+products.length+" produtos, "+sales.length+" vendas, "+users.length+" usuários)?",
+      ()=>{
+        DB.users=users; DB.products=products; DB.sales=sales;
+        DB.cash=cash||{open:null,history:[]};
+        applySettings(data.settings);
+        ensureManagerAccess();
+        saveUsers(); saveProducts(); saveSales(); saveCash(); saveSettings();
+        renderManager();
+        toast("✓ Backup restaurado","ok");
+      },"Substituir tudo");
+  };
+  reader.readAsText(file);
+}
+
 function cancelSale(){
   if(!state.cart.length) return;
   askConfirm("Cancelar venda","Isso vai remover todos os itens da venda atual.",()=>{
@@ -1181,12 +1394,10 @@ function renderManager(){
   if($("lowThreshold")) $("lowThreshold").value=settings.lowStock;
   if($("expThreshold")) $("expThreshold").value=settings.expWarnDays;
   if($("salesDate")) $("salesDate").value = salesFilter ? keyToIso(salesFilter) : "";
-  renderCards(); renderStock(); renderSales(); renderUsers();
+  if($("pix_key")){ $("pix_key").value=settings.pixKey||""; $("pix_name").value=settings.pixName||""; $("pix_city").value=settings.pixCity||""; }
+  renderCards(); renderStock(); renderSales(); renderUsers(); renderCashHist();
 }
 
-/* converte entre a chave interna (2026-6-30) e o input date (2026-06-30) */
-function keyToIso(key){ const a=key.split("-"); return a[0]+"-"+String(a[1]).padStart(2,"0")+"-"+String(a[2]).padStart(2,"0"); }
-function isoToKey(iso){ const a=iso.split("-").map(Number); return a[0]+"-"+a[1]+"-"+a[2]; }
 function filteredSales(){
   if(!salesFilter) return DB.sales.slice();
   return DB.sales.filter(s=>todayKey(new Date(s.ts))===salesFilter);
@@ -1203,14 +1414,6 @@ function renderCards(){
 }
 
 /* ---------- validade ---------- */
-/* dias até vencer: negativo = vencido, 0 = vence hoje, null = sem validade */
-function daysUntilExp(iso){
-  if(!iso) return null;
-  const a=iso.split("-").map(Number); if(a.length!==3||a.some(isNaN)) return null;
-  const exp=new Date(a[0],a[1]-1,a[2]);
-  const n=new Date(); const today=new Date(n.getFullYear(),n.getMonth(),n.getDate());
-  return Math.round((exp-today)/86400000);
-}
 function expClass(iso){
   const d=daysUntilExp(iso);
   if(d===null) return "";
@@ -1255,8 +1458,14 @@ function renderStock(){
   const q=prodQuery.trim().toLowerCase();
   const list=q ? DB.products.filter(p=>p.name.toLowerCase().includes(q)||p.code.includes(q)) : DB.products;
   if(!list.length){ el.innerHTML='<div class="empty-list">Nenhum produto encontrado.</div>'; return; }
+  const avgMap=dailyAvgMap(DB.sales,14); // ritmo de venda dos últimos 14 dias
   el.innerHTML=list.map(p=>{
     const ec=expClass(p.exp);
+    const left=daysOfStock(p.qty, avgMap[p.code]||0);
+    const leftDays=Math.max(0,Math.ceil(left));
+    const leftTag=(isFinite(left)&&left<=14)
+      ? ` <span class="explabel ${left<=3?"expired":"soon"}">📦 estoque p/ ~${leftDays} ${leftDays===1?"dia":"dias"}</span>`
+      : "";
     return `
     <div class="prow ${p.qty<=settings.lowStock?"low":""} ${ec}" data-code="${escapeHtml(p.code)}">
       <div class="top">
@@ -1264,11 +1473,15 @@ function renderStock(){
         <button class="prow-del" data-act="delprod" title="Excluir produto">✕</button>
       </div>
       <div class="code-line stockbadge">${p.qty} un · ${escapeHtml(p.code)}</div>
-      <div><span class="explabel ${ec}">${escapeHtml(expText(p.exp))}</span></div>
+      <div><span class="explabel ${ec}">${escapeHtml(expText(p.exp))}</span>${leftTag}</div>
       <div class="edits">
         <div class="e">
           <label>Preço (R$)</label>
           <input type="tel" inputmode="decimal" data-f="price" value="${p.price.toFixed(2)}" />
+        </div>
+        <div class="e">
+          <label>Custo (R$)</label>
+          <input type="tel" inputmode="decimal" data-f="cost" value="${typeof p.cost==="number"?p.cost.toFixed(2):""}" placeholder="—" />
         </div>
         <div class="e">
           <label>Estoque</label>
@@ -1287,11 +1500,11 @@ function renderStock(){
 function renderSales(){
   const el=$("salesList");
   const list=filteredSales();
-  const totalV=list.reduce((s,x)=>s+x.total,0);
-  const totalItems=list.reduce((s,x)=>s+x.items.reduce((a,i)=>a+i.qty,0),0);
+  const sum=salesSummary(list);
   if($("salesSummary")){
-    $("salesSummary").innerHTML=`<div class="ss-row"><span>${list.length} ${list.length===1?"venda":"vendas"} · ${totalItems} ${totalItems===1?"item":"itens"}</span><b>${money(totalV)}</b></div>`;
+    $("salesSummary").innerHTML=`<div class="ss-row"><span>${sum.count} ${sum.count===1?"venda":"vendas"} · ${sum.items} ${sum.items===1?"item":"itens"} · ticket médio ${money(sum.avgTicket)}</span><b>${money(sum.total)}</b></div>`;
   }
+  renderAbc(list);
   if(!list.length){ el.innerHTML='<div class="empty-list">Nenhuma venda no período.</div>'; return; }
   const showDate=!salesFilter;
   el.innerHTML=list.map(s=>{
@@ -1312,10 +1525,21 @@ function renderSales(){
   }).join("");
 }
 
+/* ---------- curva ABC do período filtrado ---------- */
+function renderAbc(list){
+  const el=$("abcList"); if(!el) return;
+  const costBy={};
+  DB.products.forEach(p=>{ if(typeof p.cost==="number") costBy[p.code]=p.cost; });
+  const rows=abcAnalysis(list||filteredSales(), costBy).slice(0,10);
+  if(!rows.length){ el.innerHTML='<div class="empty-list">Sem vendas no período.</div>'; return; }
+  el.innerHTML=rows.map(r=>`
+    <div class="ss-row" style="margin-bottom:6px">
+      <span><span class="urole ${r.cls==="A"?"ger":""}" style="margin:0 6px 0 0">${r.cls}</span>${escapeHtml(r.name)} · ${r.qty} un${r.profit!=null?" · lucro "+money(r.profit):""}</span>
+      <b>${money(r.revenue)}</b>
+    </div>`).join("");
+}
+
 /* ---------- exportar CSV ---------- */
-function csvCell(v){ const s=String(v); return /[";\r\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }
-/* decimal com vírgula: é o que o Excel/LibreOffice pt-BR espera em CSV com ";" */
-function csvNum(v){ return Number(v).toFixed(2).replace(".",","); }
 function exportCsv(){
   const list=filteredSales();
   if(!list.length){ toast("Nada para exportar","bad"); return; }
@@ -1343,9 +1567,11 @@ async function reloadFromStorage(){
     const p=sanitizeProducts(await sget("pdv:products"));
     const s=sanitizeSales(await sget("pdv:sales"));
     const u=sanitizeUsers(await sget("pdv:users"));
+    const c=sanitizeCash(await sget("pdv:cash"));
     applySettings(await sget("pdv:settings"));
     if(p) DB.products=p;
     if(s) DB.sales=s;
+    if(c) DB.cash=c;
     if(u && u.length){ DB.users=u; ensureManagerAccess(); }
   }
   if($("gerente").classList.contains("is-active")) renderManager();
@@ -1362,6 +1588,7 @@ function addProduct(){
   const name=$("np_name").value.trim();
   const price=parseMoney($("np_price").value);
   const qty=parseInt($("np_qty").value,10);
+  const costRaw=$("np_cost").value.trim();
   const exp=$("np_exp").value||null;
   const err=$("np_err");
 
@@ -1370,10 +1597,16 @@ function addProduct(){
   if(!name){ err.textContent="Informe o nome do produto."; return; }
   if(isNaN(price)||price<=0||price>PRICE_MAX){ err.textContent="Preço inválido (até R$ 999.999,99)."; return; }
   if(isNaN(qty)||qty<0||qty>QTY_MAX){ err.textContent="Quantidade inválida (0 a 1.000.000)."; return; }
+  let cost=null;
+  if(costRaw){
+    cost=parseMoney(costRaw);
+    if(isNaN(cost)||cost<0||cost>PRICE_MAX){ err.textContent="Custo inválido."; return; }
+    cost=round2(cost);
+  }
 
-  DB.products.unshift({ code, name, price:round2(price), qty, exp:isIsoDate(exp)?exp:null });
+  DB.products.unshift({ code, name, price:round2(price), qty, exp:isIsoDate(exp)?exp:null, cost });
   saveProducts();
-  ["np_code","np_name","np_price","np_qty","np_exp"].forEach(id=>$(id).value="");
+  ["np_code","np_name","np_price","np_qty","np_cost","np_exp"].forEach(id=>$(id).value="");
   err.textContent="";
   renderStock();
   toast("✓ "+name+" cadastrado","ok");
@@ -1499,7 +1732,103 @@ function confirmRestock(){
   toast("✓ +"+add+" em "+p.name,"ok");
 }
 
-function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+/* ================================================================
+   CAIXA — abertura, sangria/reforço e fechamento com conferência
+   ================================================================ */
+const fmtDT=(iso)=>new Date(iso).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+function openCashModal(){
+  renderCashModal();
+  $("cashModal").classList.add("show");
+}
+function closeCashModal(){ $("cashModal").classList.remove("show"); }
+function renderCashModal(){
+  const open=DB.cash.open;
+  $("cashClosed").style.display = open ? "none" : "block";
+  $("cashOpen").style.display   = open ? "block" : "none";
+  $("cashClosing").style.display="none";
+  $("cash_err1").textContent=""; $("cash_err2").textContent=""; $("cash_err3").textContent="";
+  if(!open){ $("cash_float").value=""; return; }
+  $("cash_mov").value="";
+  const sess=sessionSales(open, DB.sales);
+  const sum=salesSummary(sess);
+  const cashTotal=round2(sess.reduce((s,x)=>s+((x.payment&&x.payment.method==="dinheiro")?x.total:0),0));
+  const sang=round2(open.movements.filter(m=>m.type==="sangria").reduce((s,m)=>s+m.amount,0));
+  const refo=round2(open.movements.filter(m=>m.type==="reforco").reduce((s,m)=>s+m.amount,0));
+  const expected=cashExpected(open, DB.sales);
+  $("cashInfo").textContent="Aberto em "+fmtDT(open.openedAt)+" por "+open.operator;
+  $("cashSummary").innerHTML=
+    `<div class="r-it"><span>Fundo de troco</span><span>${money(open.openingFloat)}</span></div>`+
+    `<div class="r-it"><span>Vendas em dinheiro</span><span>${money(cashTotal)}</span></div>`+
+    `<div class="r-it"><span>Reforços</span><span>${money(refo)}</span></div>`+
+    `<div class="r-it"><span>Sangrias</span><span>−${money(sang)}</span></div>`+
+    `<div class="r-total"><span>Esperado na gaveta</span><span>${money(expected)}</span></div>`+
+    `<div class="r-it"><span>Vendas do turno (todas)</span><span>${sum.count} · ${money(sum.total)}</span></div>`;
+}
+function openCash(){
+  const err=$("cash_err1");
+  const raw=$("cash_float").value.trim();
+  const v=raw?parseMoney(raw):0;
+  if(isNaN(v)||v<0||v>PRICE_MAX){ err.textContent="Valor de fundo de troco inválido."; return; }
+  DB.cash.open={ openedAt:new Date().toISOString(), operator:state.user?state.user.name:"—", openingFloat:round2(v), movements:[] };
+  saveCash();
+  renderCashModal();
+  toast("✓ Caixa aberto — fundo "+money(v),"ok");
+}
+function cashMovement(type){
+  const err=$("cash_err2");
+  const open=DB.cash.open; if(!open) return;
+  const v=parseMoney($("cash_mov").value);
+  if(isNaN(v)||v<=0){ err.textContent="Informe um valor maior que zero."; return; }
+  if(type==="sangria" && round2(v)>cashExpected(open, DB.sales)){
+    err.textContent="Sangria maior que o dinheiro esperado na gaveta."; return;
+  }
+  open.movements.push({ type, amount:round2(v), ts:new Date().toISOString() });
+  saveCash();
+  renderCashModal();
+  toast(type==="sangria"?("Sangria de "+money(v)+" registrada"):("✓ Reforço de "+money(v)),"ok");
+}
+function startCloseCash(){
+  const open=DB.cash.open; if(!open) return;
+  $("cashOpen").style.display="none";
+  $("cashClosing").style.display="block";
+  $("cash_counted").value=""; $("cash_err3").textContent="";
+  $("cashExpectBox").innerHTML=
+    `<div class="r-total"><span>Esperado na gaveta</span><span>${money(cashExpected(open, DB.sales))}</span></div>`;
+}
+function confirmCloseCash(){
+  const err=$("cash_err3");
+  const open=DB.cash.open; if(!open) return;
+  const raw=$("cash_counted").value.trim();
+  const counted=raw?parseMoney(raw):NaN;
+  if(isNaN(counted)||counted<0){ err.textContent="Informe o valor contado na gaveta."; return; }
+  const closedAt=new Date().toISOString();
+  const expected=cashExpected(open, DB.sales);
+  const sess=sessionSales({...open, closedAt}, DB.sales);
+  const sum=salesSummary(sess);
+  const diff=round2(counted-expected);
+  DB.cash.history.unshift({ ...open, closedAt, expected, counted:round2(counted), diff, salesTotal:sum.total, salesCount:sum.count });
+  DB.cash.history=DB.cash.history.slice(0,60); // guarda os últimos fechamentos, sem crescer sem limite
+  DB.cash.open=null;
+  saveCash();
+  renderCashModal();
+  closeCashModal();
+  const msg = diff===0 ? "caixa bateu certinho" : (diff>0 ? "sobra de "+money(diff) : "falta de "+money(-diff));
+  toast("✓ Caixa fechado — "+msg, diff<0?"bad":"ok");
+  if($("gerente").classList.contains("is-active")) renderCashHist();
+}
+function renderCashHist(){
+  const el=$("cashHistList"); if(!el) return;
+  const list=DB.cash.history;
+  if(!list.length){ el.innerHTML='<div class="empty-list">Nenhum fechamento de caixa registrado.</div>'; return; }
+  el.innerHTML=list.slice(0,15).map(h=>{
+    const diffTxt = h.diff===0 ? "OK" : (h.diff>0?"+":"−")+money(Math.abs(h.diff)).replace("R$ ","");
+    const cls = h.diff===0 ? "" : (h.diff>0 ? "soon" : "expired");
+    return `<div class="ss-row" style="margin-bottom:6px">
+      <span><b>${fmtDT(h.openedAt)} → ${fmtDT(h.closedAt)}</b> · ${escapeHtml(h.operator)} · ${h.salesCount} vendas</span>
+      <span style="text-align:right">${money(h.expected)} <span class="explabel ${cls}" style="margin-left:4px">${escapeHtml(diffTxt)}</span></span>
+    </div>`;
+  }).join("");
+}
 
 /* ================================================================
    CONFIRMAÇÃO (sheet reutilizável)
@@ -1580,7 +1909,50 @@ function wire(){
   // comprovante
   $("receiptClose").addEventListener("click", ()=>$("receiptModal").classList.remove("show"));
   $("receiptPrint").addEventListener("click", printReceipt);
+  $("receiptShare").addEventListener("click", shareReceipt);
   $("receiptModal").addEventListener("click", e=>{ if(e.target.id==="receiptModal") $("receiptModal").classList.remove("show"); });
+
+  // pix (config na gerência + copiar no pagamento)
+  $("pixSaveBtn").addEventListener("click", savePixConfig);
+  $("pixCopyBtn").addEventListener("click", copyPixCode);
+
+  // caixa (operador)
+  $("cashBtn").addEventListener("click", openCashModal);
+  $("cashDismiss1").addEventListener("click", closeCashModal);
+  $("cashDismiss2").addEventListener("click", closeCashModal);
+  $("cashOpenBtn").addEventListener("click", openCash);
+  $("cashSangria").addEventListener("click", ()=>cashMovement("sangria"));
+  $("cashReforco").addEventListener("click", ()=>cashMovement("reforco"));
+  $("cashStartClose").addEventListener("click", startCloseCash);
+  $("cashBackBtn").addEventListener("click", renderCashModal);
+  $("cashConfirmClose").addEventListener("click", confirmCloseCash);
+  $("cashModal").addEventListener("click", e=>{ if(e.target.id==="cashModal") closeCashModal(); });
+
+  // backup (gerência)
+  $("backupExport").addEventListener("click", exportBackup);
+  $("backupImportBtn").addEventListener("click", ()=>$("backupFile").click());
+  $("backupFile").addEventListener("change", e=>{
+    importBackup(e.target.files && e.target.files[0]);
+    e.target.value=""; // permite importar o mesmo arquivo de novo
+  });
+
+  // leitor físico de código de barras (USB/Bluetooth): digita os dígitos e envia Enter.
+  // Só age na tela do caixa e quando nenhum campo de texto está focado.
+  let wedgeBuf="", wedgeT=0;
+  document.addEventListener("keydown", e=>{
+    if(!state.user || state.user.role!=="operador") return;
+    if(!$("operador").classList.contains("is-active")) return;
+    const tag=(document.activeElement&&document.activeElement.tagName)||"";
+    if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT") return;
+    const now=Date.now();
+    if(now-wedgeT>250) wedgeBuf="";   // leitores digitam rápido; pausa longa = começo de outra leitura
+    wedgeT=now;
+    if(/^\d$/.test(e.key)){ wedgeBuf=(wedgeBuf+e.key).slice(-20); }
+    else if(e.key==="Enter"){
+      if(wedgeBuf.length>=6){ addByCode(wedgeBuf); e.preventDefault(); }
+      wedgeBuf="";
+    }else if(e.key!=="Shift"){ wedgeBuf=""; }
+  });
 
   // gerência: tabs
   $("tabEstoque").addEventListener("click", ()=>switchTab("estoque"));
@@ -1618,6 +1990,14 @@ function wire(){
     }else if(inp.dataset.f==="price"){
       const v=parseMoney(inp.value); if(isNaN(v)||v<0||v>PRICE_MAX){ inp.value=p.price.toFixed(2); return; }
       p.price=round2(v); inp.value=p.price.toFixed(2);
+    }else if(inp.dataset.f==="cost"){
+      const raw=inp.value.trim();
+      if(!raw){ p.cost=null; inp.value=""; }
+      else{
+        const v=parseMoney(raw);
+        if(isNaN(v)||v<0||v>PRICE_MAX){ inp.value=typeof p.cost==="number"?p.cost.toFixed(2):""; return; }
+        p.cost=round2(v); inp.value=p.cost.toFixed(2);
+      }
     }else if(inp.dataset.f==="exp"){
       p.exp=isIsoDate(inp.value)?inp.value:null;
     }else{
@@ -1706,7 +2086,7 @@ function wire(){
   document.addEventListener("keydown", e=>{
     if(e.key!=="Escape") return;
     if($("confirmModal").classList.contains("show")){ closeConfirm(); return; }
-    ["payModal","receiptModal","manualModal","restockModal"].forEach(id=>{ const m=$(id); if(m && m.classList.contains("show")) m.classList.remove("show"); });
+    ["payModal","receiptModal","manualModal","restockModal","cashModal"].forEach(id=>{ const m=$(id); if(m && m.classList.contains("show")) m.classList.remove("show"); });
   });
 
   // bloqueia gestos/zoom residuais
@@ -1722,7 +2102,7 @@ function switchTab(which){
   $("panelVendas").classList.toggle("is-active",which==="vendas");
   $("panelUsuarios").classList.toggle("is-active",which==="usuarios");
   if(which==="estoque") renderStock();
-  else if(which==="vendas") renderSales();
+  else if(which==="vendas"){ renderSales(); renderCashHist(); }
   else renderUsers();
   renderCards();
 }
