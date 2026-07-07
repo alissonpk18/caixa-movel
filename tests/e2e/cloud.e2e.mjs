@@ -1,19 +1,27 @@
-/* E2E do modo nuvem (SaaS) — roda SEM Supabase real:
-   - intercepta js/config.js para devolver uma configuração preenchida;
-   - intercepta a lib da nuvem e serve um Supabase falso em memória,
-     persistido em localStorage (sobrevive a reload = simula a mesma
-     loja aberta em "outro aparelho").
-   Valida: modo local intocado sem config; signup; seed da loja vazia;
-   push de venda; pull completo num "segundo aparelho". */
+/* E2E do modo nuvem (SaaS) — roda SEM Supabase real, com o fake
+   compartilhado (fake-supabase.mjs). Valida o desenho atual: não existe
+   nenhuma tela de "conectar à nuvem" — o aparelho usa só o login de
+   sempre (usuário/senha); se o usuário não existe localmente, o app
+   pergunta à nuvem (RPC login_operator) e se vincula automaticamente
+   à empresa correta. */
+import { createHash } from "node:crypto";
 import { chromium } from "playwright";
-import { wireFakeCloud } from "./fake-supabase.mjs";
+import { wireFakeCloud, seedFakeStore, peekFakeDb } from "./fake-supabase.mjs";
 
 const BASE = (process.env.PDV_URL || "http://localhost:8899") + "/pdv-mobile.html";
+const passHash = (pw) => createHash("sha256").update("pdv#v1:"+pw).digest("hex");
 let failures = 0;
 const check = (name, cond, extra = "") => {
   console.log(`${cond ? "PASS" : "FAIL"}  ${name}${cond ? "" : "  " + extra}`);
   if (!cond) failures++;
 };
+
+const STORE_ID = "store-mercadinho";
+const USERS = [
+  { username:"donagerente", name:"Dona Maria", role:"gerente", canAddStock:true, passHash: passHash("segredo123") },
+  { username:"caixa2",      name:"Caixa 2",     role:"operador", canAddStock:false, passHash: passHash("789456") }
+];
+const PRODUCTS = [{ code:"7891000100103", name:"Leite Integral 1L", price:5.49, cost:null, qty:40, exp:null }];
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 
@@ -25,74 +33,76 @@ const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePa
   page.on("request", r => { if (r.url().includes("supabase")) cdnCalls.push(r.url()); });
   await page.goto(BASE);
   await page.waitForTimeout(600);
-  check("sem config: caixa de nuvem continua oculta", await page.isHidden("#cloudBox"));
-  check("sem config: lib da nuvem não é baixada", cdnCalls.length === 0, cdnCalls.join(","));
   check("sem config: login local funciona", await page.isVisible("#loginUser"));
+  check("sem config: lib da nuvem não é baixada", cdnCalls.length === 0, cdnCalls.join(","));
+  check("sem config: não existe elemento de nuvem na tela", (await page.locator("#cloudBox").count()) === 0);
   await ctx.close();
 }
 
-/* ---- contexto com nuvem "ligada" (config + lib falsas) ---- */
-const ctx = await browser.newContext();
-await wireFakeCloud(ctx);
-const page = await ctx.newPage();
-const errors = [];
-page.on("pageerror", e => errors.push("pageerror: " + e.message));
+/* ---- "aparelho A": entra direto com usuário/senha de uma empresa que
+   ele nunca viu — precisa rotear e vincular sozinho, sem nenhuma tela extra ---- */
+seedFakeStore({ storeId: STORE_ID, name: "Mercadinho da Dona", users: USERS, products: PRODUCTS });
 
-/* ---- 1. caixa de nuvem aparece; signup conecta a loja ---- */
-await page.goto(BASE);
-await page.waitForSelector("#cloudBox", { state: "visible", timeout: 5000 });
-check("com config: caixa de nuvem aparece no login", true);
-await page.fill("#cloudEmail", "dona@mercadinho.com");
-await page.fill("#cloudPass", "segredo123");
-await page.click("#cloudSignupBtn");
-await page.waitForSelector("#cloudStatus", { state: "visible", timeout: 5000 });
-check("signup conecta e mostra a loja", (await page.textContent("#cloudWho")).includes("dona@mercadinho.com"));
+const ctxA = await browser.newContext();
+await wireFakeCloud(ctxA);
+const pageA = await ctxA.newPage();
+const errorsA = [];
+pageA.on("pageerror", e => errorsA.push("pageerror: " + e.message));
 
-/* ---- 2. nuvem estava vazia: o estoque local (seed) subiu ---- */
-await page.waitForTimeout(500);
-const fake1 = await page.evaluate(() => JSON.parse(localStorage.getItem("fake:db")));
-check("loja criada na nuvem", fake1.stores.length === 1 && fake1.stores[0].owner === "u-dona@mercadinho.com");
-check("estoque local subiu para a nuvem", fake1.products.length >= 8, "products=" + fake1.products.length);
-check("usuários/config subiram (kv)", fake1.kv.some(r => r.key === "users") && fake1.kv.some(r => r.key === "settings"));
+await pageA.goto(BASE);
+check("tela de login é só a de sempre (sem card de nuvem)", (await pageA.locator("#cloudBox").count()) === 0);
 
-/* ---- 3. uma venda é empurrada para a nuvem (debounce ~1,5s) ---- */
-await page.evaluate(() => {
-  state.user = DB.users.find(u => u.role === "operador") || DB.users[0];
-  state.cart.push({ code: "7891000100103", name: "Leite Integral 1L", price: 5.49, qty: 2 });
-  finalizeSale({ method: "dinheiro", received: 20, change: 20 - 10.98 });
+await pageA.fill("#loginUser", "donagerente");
+await pageA.fill("#loginPass", "segredo123");
+await pageA.click("#loginBtn");
+await pageA.waitForSelector("#gerente.is-active", { timeout: 8000 });
+check("login direto roteia para a empresa certa (sem tela extra)", true);
+
+await pageA.waitForFunction(() => DB.products.some(p => p.code === "7891000100103"), null, { timeout: 8000 });
+check("estoque da empresa foi baixado após o roteamento", await pageA.evaluate(() =>
+  (DB.products.find(p => p.code === "7891000100103") || {}).qty === 40));
+
+check("aparelho A ficou vinculado à empresa (device_links)", peekFakeDb().device_links.length === 1);
+
+/* venda no aparelho A sobe para a nuvem */
+await pageA.evaluate(() => {
+  state.cart.push({ code: "7891000100103", name: "Leite Integral 1L", price: 5.49, qty: 3 });
+  finalizeSale({ method: "dinheiro", received: 20, change: 20 - 16.47 });
 });
-await page.waitForFunction(() => {
-  const d = JSON.parse(localStorage.getItem("fake:db") || "{}");
-  return (d.sales || []).length === 1;
-}, null, { timeout: 8000 });
-const fake2 = await page.evaluate(() => JSON.parse(localStorage.getItem("fake:db")));
-check("venda sincronizada para a nuvem", fake2.sales.length === 1 && Number(fake2.sales[0].total) === 10.98);
-check("estoque atualizado na nuvem (40−2=38)", Number((fake2.products.find(p => p.code === "7891000100103") || {}).qty) === 38);
+const t0 = Date.now();
+while (Date.now() - t0 < 8000 && peekFakeDb().sales.length < 1) await new Promise(r=>setTimeout(r,50));
+check("venda do aparelho A sincronizada", peekFakeDb().sales.length === 1);
 
-/* ---- 4. "segundo aparelho": storage do app limpo, sessão da nuvem mantida ---- */
-await page.evaluate(() => {
-  Object.keys(localStorage).filter(k => k.startsWith("pdv:")).forEach(k => localStorage.removeItem(k));
-});
-await page.reload();
-await page.waitForSelector("#cloudStatus", { state: "visible", timeout: 8000 });
-await page.waitForFunction(() => DB.sales.length === 1, null, { timeout: 8000 });
-const dev2 = await page.evaluate(() => ({
-  sales: DB.sales.length,
-  leite: (DB.products.find(p => p.code === "7891000100103") || {}).qty,
-  users: DB.users.length
-}));
-check("2º aparelho puxa as vendas da nuvem", dev2.sales === 1);
-check("2º aparelho puxa o estoque atualizado", dev2.leite === 38, "qty=" + dev2.leite);
-check("2º aparelho puxa os usuários da loja", dev2.users >= 2, "users=" + dev2.users);
+/* ---- "aparelho B": nunca viu essa empresa, mesmas credenciais ---- */
+const ctxB = await browser.newContext();
+await wireFakeCloud(ctxB);
+const pageB = await ctxB.newPage();
+const errorsB = [];
+pageB.on("pageerror", e => errorsB.push("pageerror: " + e.message));
 
-/* ---- 5. desconectar volta ao modo local ---- */
-await page.click("#cloudLogoutBtn");
-await page.waitForSelector("#cloudForm", { state: "visible", timeout: 5000 });
-check("desconectar mostra o formulário de novo", true);
+await pageB.goto(BASE);
+await pageB.fill("#loginUser", "caixa2");
+await pageB.fill("#loginPass", "789456");
+await pageB.click("#loginBtn");
+await pageB.waitForSelector("#operador.is-active", { timeout: 8000 });
+check("aparelho B (novo) também roteia com as mesmas credenciais da empresa", true);
+await pageB.waitForFunction(() => DB.sales.length === 1, null, { timeout: 8000 });
+check("aparelho B vê a venda feita no aparelho A", true);
+check("permissão do usuário veio certa (caixa sem +Estoque)", !(await pageB.isVisible("#restockBtn")));
 
-check("sem erros de JS na página", errors.length === 0, errors.join(" | "));
+/* ---- credencial errada: sem crash, sem vínculo indevido ---- */
+await pageB.click("#logoutOp");
+await pageB.fill("#loginUser", "donagerente");
+await pageB.fill("#loginPass", "senhaerrada");
+await pageB.click("#loginBtn");
+await pageB.waitForFunction(() => document.getElementById("loginErr").textContent.length > 0, null, { timeout: 5000 });
+check("senha errada não loga em lugar nenhum", (await pageB.textContent("#loginErr")).includes("incorretos"));
 
-await ctx.close();
+check("sem erros de JS (aparelho A)", errorsA.length === 0, errorsA.join(" | "));
+check("sem erros de JS (aparelho B)", errorsB.length === 0, errorsB.join(" | "));
+
+await ctxA.close();
+await ctxB.close();
 await browser.close();
 if (failures) { console.error(`\n${failures} FALHA(S) NO MODO NUVEM`); process.exit(1); }
 console.log("\nTODOS OS TESTES DO MODO NUVEM PASSARAM");

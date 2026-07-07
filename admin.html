@@ -72,6 +72,14 @@
         <div class="grow"><b id="admWho"></b><div class="sub" style="margin:0">administrador</div></div>
         <button class="btn btn-ghost btn-sm" id="admLogoutBtn">Sair</button>
       </div>
+      <div class="sect">Nova empresa</div>
+      <div class="grid2">
+        <div><label for="ns_name">Nome da empresa</label><input id="ns_name" type="text" placeholder="ex.: Mercadinho da Dona" /></div>
+        <div><label for="ns_email">E-mail de contato</label><input id="ns_email" type="email" autocapitalize="none" placeholder="ex.: dona@mercadinho.com" /></div>
+      </div>
+      <div class="err" id="ns_err"></div>
+      <button class="btn btn-primary" id="ns_addBtn">Criar empresa</button>
+
       <div class="sect">Empresas cadastradas</div>
       <div id="storeList"></div>
     </div>

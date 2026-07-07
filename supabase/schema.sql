@@ -4,23 +4,30 @@
 -- COMO USAR: crie um projeto grátis em https://supabase.com, abra o
 -- SQL Editor, cole este arquivo inteiro e clique em "Run". Depois copie
 -- a URL do projeto e a chave "anon public" (Settings → API) para o
--- arquivo js/config.js do app.
+-- arquivo js/config.js do app. Habilite também em Authentication →
+-- Sign In / Providers → **Anonymous Sign-Ins** (é o que dá a cada
+-- aparelho uma identidade para o RLS, sem pedir e-mail de ninguém).
 --
--- Modelo v1: UMA CONTA (e-mail/senha) = UMA LOJA. Todos os aparelhos da
--- loja entram com a mesma conta; os logins de operador (gerente/caixa)
--- continuam sendo os do próprio app, sincronizados como dados da loja.
--- O isolamento entre lojas é garantido por Row Level Security (RLS):
--- cada conta só consegue ler e escrever as linhas da própria loja,
--- mesmo que o código do cliente seja alterado.
+-- Modelo: a EMPRESA é criada pelo administrador da plataforma (você)
+-- pelo admin.html, que também cadastra o gerente e os caixas de cada
+-- uma. O lojista nunca vê uma tela de "conectar à nuvem": o aparelho
+-- usa o login de sempre (usuário/senha); se o usuário não existe ainda
+-- naquele aparelho, a função login_operator() abaixo descobre a que
+-- empresa ele pertence, confere a senha no banco e vincula o aparelho
+-- automaticamente (tabela device_links). Da próxima vez o login já
+-- resolve local, sem consultar a nuvem de novo.
+--
+-- O isolamento entre empresas é garantido por Row Level Security (RLS):
+-- cada aparelho só lê e escreve as linhas da empresa a que está
+-- vinculado, mesmo que o código do cliente seja alterado.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
--- Loja: uma linha por conta. `owner` é o usuário do Supabase Auth.
+-- Empresa (loja). Criada pelo admin — sem dono/e-mail obrigatório.
 -- ---------------------------------------------------------------------
 create table if not exists public.stores (
   id         uuid primary key default gen_random_uuid(),
-  owner      uuid not null default auth.uid() unique
-             references auth.users(id) on delete cascade,
+  owner      uuid unique references auth.users(id) on delete set null,
   name       text not null default 'Minha loja',
   email      text not null default '',
   created_at timestamptz not null default now()
@@ -88,22 +95,47 @@ create table if not exists public.kv (
 );
 
 -- ---------------------------------------------------------------------
+-- Vínculo aparelho↔empresa. Uma linha por sessão anônima (= aparelho);
+-- só é escrita pela função login_operator() abaixo (security definer),
+-- nunca diretamente pelo cliente — por isso não há política de escrita
+-- para o papel authenticated, só de leitura da própria linha.
+-- ---------------------------------------------------------------------
+create table if not exists public.device_links (
+  auth_uid  uuid primary key references auth.users(id) on delete cascade,
+  store_id  uuid not null references public.stores(id) on delete cascade,
+  linked_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------
 -- Row Level Security — o coração da multi-tenancy.
 -- ---------------------------------------------------------------------
 
--- id da loja do usuário logado (security definer para poder consultar
--- stores dentro das políticas das outras tabelas sem recursão de RLS)
+-- id da empresa deste aparelho/sessão: a de que é dono (fluxo legado,
+-- se algum dia reintroduzido) ou a que este aparelho está vinculado.
 create or replace function public.my_store_id()
 returns uuid
 language sql stable security definer
 set search_path = public
-as $$ select id from public.stores where owner = auth.uid() $$;
+as $$
+  select coalesce(
+    (select id from public.stores where owner = auth.uid()),
+    (select store_id from public.device_links where auth_uid = auth.uid())
+  )
+$$;
 
-alter table public.stores   enable row level security;
-alter table public.products enable row level security;
-alter table public.sales    enable row level security;
-alter table public.kv       enable row level security;
-alter table public.admins   enable row level security;
+alter table public.stores       enable row level security;
+alter table public.products     enable row level security;
+alter table public.sales        enable row level security;
+alter table public.kv           enable row level security;
+alter table public.admins       enable row level security;
+alter table public.device_links enable row level security;
+
+-- cada aparelho só vê a própria linha de vínculo (útil para o app saber
+-- se já está vinculado ao abrir); a escrita é só via login_operator()
+drop policy if exists "own device link" on public.device_links;
+create policy "own device link" on public.device_links
+  for select to authenticated
+  using (auth_uid = auth.uid());
 
 -- cada conta só vê a própria linha de admin (o console usa isto para
 -- saber se a conta logada é administradora); ninguém se promove via API
@@ -148,3 +180,52 @@ create trigger products_touch before update on public.products
 drop trigger if exists kv_touch on public.kv;
 create trigger kv_touch before update on public.kv
   for each row execute function public.touch_updated_at();
+
+-- ---------------------------------------------------------------------
+-- login_operator: a ponte entre "usuário/senha" e "de qual empresa é".
+--
+-- Roda com os privilégios do dono do banco (security definer), então
+-- consegue procurar em TODAS as empresas — é o único lugar do sistema
+-- com esse poder, e por isso é cuidadoso: confere a senha (mesmo hash
+-- SHA-256 já usado no app, "pdv#v1:"+senha) antes de revelar qualquer
+-- coisa, e só devolve nome/papel/permissão — nunca o hash de ninguém.
+-- Se a senha bater, vincula o aparelho (device_links) à empresa; dali
+-- em diante o RLS normal libera a sincronização dos dados da empresa.
+--
+-- Requer uma sessão (mesmo anônima) — é ela quem diz "este aparelho".
+-- Percorre a lista de usuários de cada empresa (kv.key='users'); para
+-- o tamanho esperado de uma plataforma pequena/média isso é rápido o
+-- bastante — otimize com um índice dedicado só se um dia isso importar.
+-- ---------------------------------------------------------------------
+create or replace function public.login_operator(p_username text, p_hash text)
+returns table(store_id uuid, name text, role text, can_add_stock boolean)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  rec  record;
+  elem jsonb;
+begin
+  if auth.uid() is null then
+    return; -- sem sessão não há a quem vincular o aparelho
+  end if;
+
+  for rec in select kv.store_id as sid, kv.value as val from public.kv where key = 'users' loop
+    for elem in select * from jsonb_array_elements(coalesce(rec.val, '[]'::jsonb)) loop
+      if lower(elem->>'username') = lower(p_username)
+         and coalesce(elem->>'passHash','') <> ''
+         and elem->>'passHash' = p_hash then
+        insert into public.device_links (auth_uid, store_id) values (auth.uid(), rec.sid)
+          on conflict (auth_uid) do update set store_id = excluded.store_id, linked_at = now();
+        return query select rec.sid, coalesce(elem->>'name',''), coalesce(elem->>'role','operador'),
+          coalesce((elem->>'canAddStock')::boolean, false);
+        return;
+      end if;
+    end loop;
+  end loop;
+  return; -- nenhuma empresa tem esse usuário/senha
+end;
+$$;
+
+grant execute on function public.login_operator(text, text) to anon, authenticated;
