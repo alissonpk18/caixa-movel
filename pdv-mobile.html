@@ -33,6 +33,7 @@
 
   <!-- ============ LOGIN ============ -->
   <section class="screen is-active" id="login">
+   <div class="login-stack">
     <div class="card">
       <div class="brand">
         <div class="mark">P</div>
@@ -55,6 +56,30 @@
         Demonstração — gerência: <b>gerente / 1234</b><br/>caixa: <b>caixa / 1234</b>
       </div>
     </div>
+
+    <!-- Conta da loja na nuvem — só aparece quando js/config.js está preenchido -->
+    <div class="card cloud-card" id="cloudBox" style="display:none">
+      <div class="cloud-title">☁ Loja na nuvem</div>
+      <div id="cloudForm">
+        <div class="field">
+          <label for="cloudEmail">E-mail da loja</label>
+          <input id="cloudEmail" type="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="voce@exemplo.com" />
+        </div>
+        <div class="field">
+          <label for="cloudPass">Senha da loja</label>
+          <input id="cloudPass" type="password" autocomplete="current-password" placeholder="••••••••" />
+        </div>
+        <div class="login-err" id="cloudErr"></div>
+        <button class="btn btn-primary" id="cloudLoginBtn">Entrar na nuvem</button>
+        <button class="btn btn-ghost" id="cloudSignupBtn">Criar conta da loja</button>
+        <div class="hint">Sincroniza estoque, vendas e caixa entre aparelhos.</div>
+      </div>
+      <div id="cloudStatus" style="display:none">
+        <div class="cloud-ok" id="cloudWho"></div>
+        <button class="btn btn-ghost" id="cloudLogoutBtn">Desconectar da nuvem</button>
+      </div>
+    </div>
+   </div>
   </section>
 
   <!-- ============ CAIXA (OPERADOR) ============ -->
@@ -361,6 +386,7 @@
 
 <!-- Módulos do app — scripts clássicos com escopo global compartilhado,
      carregados em ordem de dependência (sem build, sem bundler). -->
+<script src="./js/config.js"></script>
 <script src="./js/helpers.js"></script>
 <script src="./js/store.js"></script>
 <script src="./js/feedback.js"></script>
@@ -372,6 +398,7 @@
 <script src="./js/users.js"></script>
 <script src="./js/cashbox.js"></script>
 <script src="./js/modals.js"></script>
+<script src="./js/cloud.js"></script>
 <script src="./js/main.js"></script>
 </body>
 </html>

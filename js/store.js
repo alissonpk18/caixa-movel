@@ -61,11 +61,13 @@ function ensureManagerAccess(){
   DB.users.push({...SEED_USERS[0]});
   saveUsers();
 }
-const saveProducts = () => sset("pdv:products", DB.products);
-const saveSales    = () => sset("pdv:sales", DB.sales);
-const saveUsers    = () => sset("pdv:users", DB.users);
-const saveCash     = () => sset("pdv:cash", DB.cash);
-const saveSettings = () => sset("pdv:settings", settings);
+/* cada gravação local também avisa a nuvem (no-op quando não configurada) */
+const dirty = (k) => { if(typeof cloudMarkDirty==="function") cloudMarkDirty(k); };
+const saveProducts = () => { dirty("products"); return sset("pdv:products", DB.products); };
+const saveSales    = () => { dirty("sales");    return sset("pdv:sales", DB.sales); };
+const saveUsers    = () => { dirty("users");    return sset("pdv:users", DB.users); };
+const saveCash     = () => { dirty("cash");     return sset("pdv:cash", DB.cash); };
+const saveSettings = () => { dirty("settings"); return sset("pdv:settings", settings); };
 const saveSession  = () => sset("pdv:session", state.user ? {username:state.user.username, role:state.user.role, name:state.user.name} : null);
 
 async function boot(){
@@ -84,5 +86,7 @@ async function boot(){
   if(!storageOK) markStorageFailure();
   wire();
   await restoreSession();
+  /* nuvem (opcional): inicializa em segundo plano, nunca atrasa a abertura */
+  if(typeof cloudInit==="function") cloudInit();
 }
 

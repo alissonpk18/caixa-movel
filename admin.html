@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#14181F" />
+<title>Admin · PDV Caixa Rápido</title>
+<meta name="robots" content="noindex" />
+<style>
+  :root{
+    --bg:#EEF0F3; --surface:#FFF; --ink:#14181F; --muted:#6B7280;
+    --brand:#2B4BE0; --ok:#0E9F6E; --bad:#D64545; --line:#E3E6EB;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    min-height:100vh;padding:20px}
+  .wrap{max-width:760px;margin:0 auto}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:var(--muted);font-size:13.5px;margin-bottom:18px}
+  .card{background:var(--surface);border-radius:18px;padding:20px;box-shadow:0 10px 30px rgba(20,24,31,.07);margin-bottom:14px}
+  label{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin:10px 2px 5px}
+  input,select{width:100%;height:46px;border:1.5px solid var(--line);border-radius:12px;padding:0 14px;
+    font-size:15px;background:#fff;color:var(--ink)}
+  input:focus,select:focus{outline:none;border-color:var(--brand)}
+  .btn{height:46px;border:0;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;padding:0 16px}
+  .btn-primary{background:var(--brand);color:#fff;width:100%;margin-top:14px}
+  .btn-ghost{background:#EDF0F5;color:var(--ink)}
+  .btn-bad{background:#FBE9E9;color:var(--bad)}
+  .btn-sm{height:34px;font-size:13px;border-radius:9px;padding:0 10px}
+  .err{color:var(--bad);font-size:13px;font-weight:700;min-height:18px;margin-top:8px}
+  .okmsg{color:var(--ok);font-size:13px;font-weight:700;min-height:18px;margin-top:8px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .grow{flex:1}
+  .store{display:flex;gap:10px;align-items:center;padding:13px 6px;border-bottom:1px solid var(--line);cursor:pointer}
+  .store:last-child{border-bottom:0}
+  .store .nm{font-weight:800}
+  .store .em{color:var(--muted);font-size:12.5px;font-family:var(--mono)}
+  .user{display:flex;gap:8px;align-items:center;padding:11px 6px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .user:last-child{border-bottom:0}
+  .user .nm{font-weight:800}
+  .user .un{color:var(--muted);font-size:12.5px;font-family:var(--mono)}
+  .tag{font-size:11px;font-weight:800;border-radius:99px;padding:3px 9px;background:#EDF0F5}
+  .tag.g{background:#E4E9FF;color:var(--brand)}
+  .tag.p{background:#E2F5EC;color:var(--ok)}
+  .sect{font-size:13px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin:16px 2px 8px}
+  .top{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+  @media (max-width:520px){ .grid2{grid-template-columns:1fr} }
+  a.back{color:var(--brand);font-weight:700;text-decoration:none;font-size:14px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⚙️ Admin da plataforma</h1>
+  <p class="sub">Controle das empresas, gerentes e caixas · <a class="back" href="./pdv-mobile.html">ir para o PDV</a></p>
+
+  <!-- login do administrador -->
+  <div class="card" id="admLogin">
+    <label for="admEmail">E-mail do administrador</label>
+    <input id="admEmail" type="email" autocomplete="email" autocapitalize="none" placeholder="voce@plataforma.com" />
+    <label for="admPass">Senha</label>
+    <input id="admPass" type="password" autocomplete="current-password" placeholder="••••••••" />
+    <div class="err" id="admErr"></div>
+    <button class="btn btn-primary" id="admLoginBtn">Entrar</button>
+  </div>
+
+  <!-- lista de empresas -->
+  <div id="admStores" style="display:none">
+    <div class="card">
+      <div class="top">
+        <div class="grow"><b id="admWho"></b><div class="sub" style="margin:0">administrador</div></div>
+        <button class="btn btn-ghost btn-sm" id="admLogoutBtn">Sair</button>
+      </div>
+      <div class="sect">Empresas cadastradas</div>
+      <div id="storeList"></div>
+    </div>
+  </div>
+
+  <!-- detalhe de uma empresa -->
+  <div id="admStore" style="display:none">
+    <div class="card">
+      <a class="back" id="backBtn">← Todas as empresas</a>
+      <div class="sect">Empresa</div>
+      <div class="row">
+        <input id="stName" class="grow" type="text" />
+        <button class="btn btn-ghost" id="stSaveBtn">Salvar nome</button>
+      </div>
+      <div class="sub" id="stEmail" style="margin-top:8px"></div>
+
+      <div class="sect">Gerentes e caixas</div>
+      <div id="userList"></div>
+      <div class="okmsg" id="uMsg"></div>
+
+      <div class="sect">Adicionar acesso</div>
+      <div class="grid2">
+        <div><label for="nu_user">Login</label><input id="nu_user" type="text" autocapitalize="none" placeholder="ex.: maria" /></div>
+        <div><label for="nu_name">Nome</label><input id="nu_name" type="text" placeholder="ex.: Maria Souza" /></div>
+        <div><label for="nu_role">Papel</label>
+          <select id="nu_role"><option value="operador">Caixa (operador)</option><option value="gerente">Gerente</option></select></div>
+        <div><label for="nu_pass">Senha</label><input id="nu_pass" type="text" autocapitalize="none" placeholder="mín. 4 caracteres" /></div>
+      </div>
+      <div class="err" id="nu_err"></div>
+      <button class="btn btn-primary" id="nu_addBtn">Adicionar à empresa</button>
+    </div>
+  </div>
+</div>
+
+<script src="./js/config.js"></script>
+<script src="./js/admin.js"></script>
+</body>
+</html>
