@@ -29,6 +29,8 @@ function confirmRestock(){
   const exp=$("rs_exp").value;
   if(isIsoDate(exp)) p.exp=exp;   // registra a validade da mercadoria que entrou
   saveProducts();
+  // ajuste relativo na nuvem (soma, nunca "define" — ver js/cloud.js)
+  if(typeof cloudEnqueueStockDelta==="function") cloudEnqueueStockDelta(p.code, add);
   if($("gerente").classList.contains("is-active")) renderStock();
   closeRestock();
   setStatus("Estoque atualizado: "+p.name+" (+"+add+")","ok"); beep("ok");

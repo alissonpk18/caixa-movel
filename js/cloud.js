@@ -20,9 +20,16 @@
    Estratégia: offline-first. O app opera sempre sobre o storage local;
    esta camada empurra mudanças (push, com debounce) e puxa o estado da
    nuvem (pull) ao abrir, ao voltar ao primeiro plano e a cada minuto.
-   Conflitos: última escrita vence; vendas são append-only (upsert
-   idempotente), o caso mais comum de concorrência entre caixas.
-   ================================================================ */
+
+   Conflitos — kv (usuários/caixa/config) e metadados de produto (nome/
+   preço/custo/validade) seguem "última escrita vence": simples, e uma
+   segunda gerência mexendo ao mesmo tempo é raro. Já a QUANTIDADE em
+   estoque nunca é sincronizada por valor absoluto — duas vendas ou
+   reposições simultâneas em aparelhos diferentes fariam uma delas
+   "vencer" e a outra baixa sumir. Em vez disso, toda mudança de
+   quantidade vira uma fila local de operações (venda, ajuste relativo,
+   correção absoluta) aplicada no banco por RPCs atômicas — o banco quem
+   soma/subtrai, nunca o cliente que "define" o número final. */
 /* versão pinada (não "@2" flutuante) + verificação de integridade (SRI):
    um CDN comprometido não pode trocar silenciosamente o código que fala
    com a nuvem de todas as empresas. Ao atualizar a versão, recalcule o
@@ -34,7 +41,7 @@ const CLOUD_PULL_MS = 60000;
 let sbClient = null;        // cliente Supabase (null = lib não carregada/sem config)
 let cloudStoreId = null;    // id da empresa vinculada a este aparelho (null = ainda não vinculado)
 let cloudApplying = false;  // aplicando um pull: não re-marcar como sujo
-const cloudDirty = { products:false, sales:false, users:false, cash:false, settings:false };
+const cloudDirty = { products:false, sales:false, stock:false, users:false, cash:false, settings:false };
 let cloudPushT = null;
 
 function cloudEnabled(){
@@ -110,11 +117,17 @@ async function cloudPush(){
   if(!cloudOn() || !navigator.onLine) return;
   if(cloudDirty.products){ await cloudPushProducts(); cloudDirty.products=false; }
   if(cloudDirty.sales){    await cloudPushSales();    cloudDirty.sales=false; }
+  if(cloudDirty.stock){    await cloudPushStock();    cloudDirty.stock=false; }
   for(const k of ["users","cash","settings"]){
     if(cloudDirty[k]){ await cloudPushKV(k); cloudDirty[k]=false; }
   }
 }
 
+/* metadados (nome/preço/custo/validade) + inserção de produto novo.
+   qty vai junto por simplicidade, mas o banco ignora esse campo num
+   UPDATE (gatilho products_protect_qty) — só entra de fato num INSERT
+   (produto que ainda não existia na nuvem). Mudar a quantidade de um
+   produto já existente é sempre via fila (venda/ajuste/correção). */
 async function cloudPushProducts(){
   const rows = DB.products.map(p=>({
     store_id:cloudStoreId, code:String(p.code), name:p.name,
@@ -134,21 +147,73 @@ async function cloudPushProducts(){
   if(error) throw error;
 }
 
+/* fila explícita (achado A-07): cada venda finalizada entra numa lista
+   persistida e só sai dela quando o servidor confirma a RPC apply_sale
+   (idempotente — reenviar não duplica nem debita de novo). Substitui a
+   antiga janela "desde a última vez, com 1h de sobreposição", que
+   dependia do relógio do aparelho e podia deixar vendas para trás. */
 async function cloudPushSales(){
-  // incremental: só vendas desde o último push (com 1h de sobreposição;
-  // o upsert é idempotente, reenvio repetido não duplica)
-  const mark = await sget("pdv:cloudSalesMark");
-  const cut = mark ? new Date(new Date(mark).getTime()-3600000).toISOString() : "";
-  const list = cut ? DB.sales.filter(s=>s.ts>=cut) : DB.sales;
-  const rows = list.map(s=>({
-    store_id:cloudStoreId, id:s.id, at:s.ts, total:s.total,
-    operator:s.operator||"", method:(s.payment&&s.payment.method)||"", data:s
-  }));
-  if(rows.length){
-    const { error } = await sbClient.from("sales").upsert(rows);
-    if(error) throw error;
+  const pending = (await sget("pdv:cloudPendingSales")) || [];
+  for(let i=0;i<pending.length;i++){
+    const sale = DB.sales.find(s=>s.id===pending[i]);
+    if(!sale) continue; // nada a enviar (não deveria acontecer)
+    const { error } = await sbClient.rpc("apply_sale", { p_sale: sale });
+    if(error){ await sset("pdv:cloudPendingSales", pending.slice(i)); throw error; }
   }
-  await sset("pdv:cloudSalesMark", new Date().toISOString());
+  await sset("pdv:cloudPendingSales", []);
+}
+
+/* fila de ajustes de estoque (achado A-02): ajustes relativos primeiro
+   (reposição — soma), depois correções absolutas (edição manual da
+   gerência / restauração de backup — define). Cada RPC é atômica no
+   banco; em caso de erro, preserva só o que ainda não foi aplicado. */
+async function cloudPushStock(){
+  const deltas = (await sget("pdv:cloudPendingStockDeltas")) || [];
+  for(let i=0;i<deltas.length;i++){
+    const { code, delta } = deltas[i];
+    const { error } = await sbClient.rpc("adjust_stock", { p_code:code, p_delta:delta });
+    if(error){ await sset("pdv:cloudPendingStockDeltas", deltas.slice(i)); throw error; }
+  }
+  await sset("pdv:cloudPendingStockDeltas", []);
+
+  const sets = (await sget("pdv:cloudPendingStockSets")) || {};
+  for(const code of Object.keys(sets)){
+    const { error } = await sbClient.rpc("set_stock", { p_code:code, p_qty:sets[code] });
+    if(error){ await sset("pdv:cloudPendingStockSets", sets); throw error; }
+    delete sets[code];
+  }
+  await sset("pdv:cloudPendingStockSets", sets); // {} se tudo foi aplicado
+}
+
+/* chamado por js/sale.js ao finalizar uma venda. */
+async function cloudEnqueueSale(id){
+  if(!cloudEnabled()) return;
+  try{
+    const list = (await sget("pdv:cloudPendingSales")) || [];
+    if(!list.includes(id)){ list.push(id); await sset("pdv:cloudPendingSales", list); }
+  }catch(e){}
+  cloudMarkDirty("sales");
+}
+/* chamado por js/cashbox.js ao confirmar uma reposição (+Estoque). */
+async function cloudEnqueueStockDelta(code, delta){
+  if(!cloudEnabled() || !delta) return;
+  try{
+    const list = (await sget("pdv:cloudPendingStockDeltas")) || [];
+    list.push({ code:String(code), delta });
+    await sset("pdv:cloudPendingStockDeltas", list);
+  }catch(e){}
+  cloudMarkDirty("stock");
+}
+/* chamado por js/main.js (edição manual da quantidade pela gerência) e
+   por js/backup.js (restauração de backup) — "definir", não "somar". */
+async function cloudEnqueueStockSet(code, qty){
+  if(!cloudEnabled()) return;
+  try{
+    const map = (await sget("pdv:cloudPendingStockSets")) || {};
+    map[String(code)] = qty;
+    await sset("pdv:cloudPendingStockSets", map);
+  }catch(e){}
+  cloudMarkDirty("stock");
 }
 
 async function cloudPushKV(key){

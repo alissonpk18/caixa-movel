@@ -3,7 +3,9 @@
    nenhuma tela de "conectar à nuvem" — o aparelho usa só o login de
    sempre (usuário/senha); se o usuário não existe localmente, o app
    pergunta à nuvem (RPC login_operator) e se vincula automaticamente
-   à empresa correta. */
+   à empresa correta. Valida também o achado A-02 do relatório de
+   arquitetura: vendas concorrentes do mesmo produto em aparelhos
+   diferentes não perdem baixa de estoque (RPC apply_sale, atômica). */
 import { createHash } from "node:crypto";
 import { chromium } from "playwright";
 import { wireFakeCloud, seedFakeStore, peekFakeDb } from "./fake-supabase.mjs";
@@ -95,6 +97,28 @@ check("aparelho B (novo) também roteia com as mesmas credenciais da empresa", t
 await pageB.waitForFunction(() => DB.sales.length === 1, null, { timeout: 8000 });
 check("aparelho B vê a venda feita no aparelho A", true);
 check("permissão do usuário veio certa (caixa sem +Estoque)", !(await pageB.isVisible("#restockBtn")));
+
+/* ---- achado A-02 do relatório de arquitetura: duas vendas do MESMO
+   produto em aparelhos diferentes, SEM sincronizar entre uma e outra —
+   cada aparelho decide a partir do próprio estoque local desatualizado.
+   Com "última escrita vence" uma das baixas sumiria; com apply_sale
+   (delta atômico no banco) as duas se aplicam, não importa a ordem. ---- */
+const qtyBeforeRace = peekFakeDb().products.find(p => p.code === "7891000100103").qty;
+check("estoque antes da corrida é o esperado (40−3=37)", qtyBeforeRace === 37, "qty=" + qtyBeforeRace);
+
+await pageA.evaluate(() => {
+  state.cart.push({ code: "7891000100103", name: "Leite Integral 1L", price: 5.49, qty: 2 });
+  finalizeSale({ method: "dinheiro", received: 20, change: 0 });
+});
+await pageB.evaluate(() => {
+  state.cart.push({ code: "7891000100103", name: "Leite Integral 1L", price: 5.49, qty: 5 });
+  finalizeSale({ method: "dinheiro", received: 50, change: 0 });
+});
+const t1 = Date.now();
+while (Date.now() - t1 < 8000 && peekFakeDb().sales.length < 3) await new Promise(r => setTimeout(r, 50));
+check("as duas vendas concorrentes chegaram na nuvem", peekFakeDb().sales.length === 3);
+const qtyAfterRace = peekFakeDb().products.find(p => p.code === "7891000100103").qty;
+check("nenhuma baixa de estoque se perde na corrida (37−2−5=30)", qtyAfterRace === 30, "qty=" + qtyAfterRace);
 
 /* ---- credencial errada: sem crash, sem vínculo indevido ---- */
 await pageB.click("#logoutOp");

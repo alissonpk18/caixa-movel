@@ -245,3 +245,105 @@ end;
 $$;
 
 grant execute on function public.login_operator(text, text) to anon, authenticated;
+
+-- ---------------------------------------------------------------------
+-- Proteção do estoque (achado A-02 do relatório de arquitetura): a
+-- quantidade só muda por uma destas três RPCs — nunca por um upsert
+-- absoluto qualquer, que a partir de agora só carrega nome/preço/custo/
+-- validade. Sem isso, duas vendas simultâneas em aparelhos diferentes
+-- podiam se sobrescrever ("última escrita vence") e uma baixa de
+-- estoque sumia silenciosamente. O gatilho abaixo barra qty em UPDATE
+-- a menos que a própria transação avise (via app.allow_qty_update) que
+-- é uma das RPCs abaixo — INSERT (produto novo) não é afetado.
+-- ---------------------------------------------------------------------
+create or replace function public.protect_product_qty()
+returns trigger
+language plpgsql
+as $$
+begin
+  if TG_OP = 'UPDATE' and coalesce(current_setting('app.allow_qty_update', true), '') <> 'true' then
+    new.qty := old.qty;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists products_protect_qty on public.products;
+create trigger products_protect_qty before update on public.products
+  for each row execute function public.protect_product_qty();
+
+-- venda: insere a venda e decrementa os itens vendidos na MESMA transação
+-- (atômico) — idempotente: reenviar o mesmo id não duplica a venda nem
+-- debita o estoque de novo (basta checar se a linha já existia).
+create or replace function public.apply_sale(p_sale jsonb)
+returns void
+language plpgsql
+as $$
+declare
+  v_store uuid := public.my_store_id();
+  item    jsonb;
+begin
+  if v_store is null then
+    raise exception 'sem empresa vinculada';
+  end if;
+
+  insert into public.sales (store_id, id, at, operator, method, total, data)
+  values (
+    v_store, p_sale->>'id', (p_sale->>'ts')::timestamptz,
+    coalesce(p_sale->>'operator', ''), coalesce(p_sale->'payment'->>'method', ''),
+    coalesce((p_sale->>'total')::numeric, 0), p_sale
+  )
+  on conflict (store_id, id) do nothing;
+
+  if found then
+    perform set_config('app.allow_qty_update', 'true', true);
+    for item in select * from jsonb_array_elements(coalesce(p_sale->'items', '[]'::jsonb)) loop
+      update public.products
+        set qty = greatest(0, qty - coalesce((item->>'qty')::integer, 0))
+        where store_id = v_store and code = item->>'code';
+    end loop;
+  end if;
+end;
+$$;
+grant execute on function public.apply_sale(jsonb) to authenticated;
+
+-- reposição de estoque (botão "+Estoque" do caixa): ajuste RELATIVO,
+-- atômico — soma/subtrai em vez de "definir", para não brigar com uma
+-- venda ou outra reposição acontecendo ao mesmo tempo em outro aparelho.
+create or replace function public.adjust_stock(p_code text, p_delta integer)
+returns void
+language plpgsql
+as $$
+declare v_store uuid := public.my_store_id();
+begin
+  if v_store is null then
+    raise exception 'sem empresa vinculada';
+  end if;
+  perform set_config('app.allow_qty_update', 'true', true);
+  update public.products
+    set qty = greatest(0, qty + p_delta)
+    where store_id = v_store and code = p_code;
+end;
+$$;
+grant execute on function public.adjust_stock(text, integer) to authenticated;
+
+-- correção manual de estoque (edição direta do campo "Estoque" na
+-- gerência, ou restauração de backup): define o valor ABSOLUTO — use só
+-- quando a intenção é mesmo "fixar em N" (para somar/subtrair, é
+-- adjust_stock acima).
+create or replace function public.set_stock(p_code text, p_qty integer)
+returns void
+language plpgsql
+as $$
+declare v_store uuid := public.my_store_id();
+begin
+  if v_store is null then
+    raise exception 'sem empresa vinculada';
+  end if;
+  perform set_config('app.allow_qty_update', 'true', true);
+  update public.products
+    set qty = greatest(0, p_qty)
+    where store_id = v_store and code = p_code;
+end;
+$$;
+grant execute on function public.set_stock(text, integer) to authenticated;

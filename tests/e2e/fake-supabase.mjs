@@ -14,7 +14,12 @@
    - rpc('login_operator', {p_username,p_hash}): espelha a função SQL em
      supabase/schema.sql — procura o usuário em TODAS as empresas
      (kv.key='users'), confere o hash e, se bater, vincula o aparelho
-     (device_links) e devolve o store_id. */
+     (device_links) e devolve o store_id.
+   - rpc('apply_sale'|'adjust_stock'|'set_stock', ...): espelham as RPCs
+     atômicas de estoque (achado A-02) — mutam DB.products.qty
+     diretamente, e o upsert genérico de "products" (linha abaixo)
+     ignora qty num UPDATE, exatamente como o gatilho protect_product_qty
+     do banco real; só um INSERT (produto novo) define qty pelo upsert. */
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -46,6 +51,32 @@ function handleFakeApi({ fn, uid, args }){
     }
     return { data:[], error:null };
   }
+  if(fn==="rpc.apply_sale" || fn==="rpc.adjust_stock" || fn==="rpc.set_stock"){
+    if(!uid) return { data:null, error:{ message:"not authenticated" } };
+    const link = DB.device_links.find(x=>x.auth_uid===uid);
+    const store_id = link && link.store_id;
+    if(!store_id) return { data:null, error:{ message:"sem empresa vinculada" } };
+
+    if(fn==="rpc.apply_sale"){
+      const sale = args.p_sale;
+      const already = DB.sales.some(s=>s.store_id===store_id && s.id===sale.id);
+      if(!already){
+        DB.sales.push({ store_id, id:sale.id, at:sale.ts, operator:sale.operator||"",
+          method:(sale.payment&&sale.payment.method)||"", total:sale.total, data:sale });
+        (sale.items||[]).forEach(it=>{
+          const p = DB.products.find(x=>x.store_id===store_id && x.code===it.code);
+          if(p) p.qty = Math.max(0, p.qty - (it.qty||0));
+        });
+      }
+      return { data:null, error:null };
+    }
+    const p = DB.products.find(x=>x.store_id===store_id && x.code===args.p_code);
+    if(p){
+      if(fn==="rpc.adjust_stock") p.qty = Math.max(0, p.qty + args.p_delta);
+      else p.qty = Math.max(0, args.p_qty);
+    }
+    return { data:null, error:null };
+  }
   if(fn==="from.exec"){
     const { table:t, op, rows, eq, not, single, maybe } = args;
     if(!uid) return { data:null, error:{ message:"not authenticated" } };
@@ -63,7 +94,13 @@ function handleFakeApi({ fn, uid, args }){
         const isNew = !list.some(x=>keyOf(t,x)===keyOf(t,r));
         if(t==="stores" && isNew){ r.id = r.id || ("store-"+(DB.n++)); }
         const i = list.findIndex(x=>keyOf(t,x)===keyOf(t,r));
-        if(i>=0){ if(op==="upsert") list[i]=Object.assign({}, list[i], r); }
+        if(i>=0){
+          if(op==="upsert"){
+            const patch = Object.assign({}, r);
+            if(t==="products") delete patch.qty; // simula o gatilho protect_product_qty
+            list[i]=Object.assign({}, list[i], patch);
+          }
+        }
         else list.push(r);
       });
       const out = rows.map(r=>list.find(x=>keyOf(t,x)===keyOf(t,r))).filter(Boolean).filter(visible);
@@ -119,8 +156,10 @@ window.supabase = { createClient: function(){
     return api;
   }
   async function rpc(name, args){
-    if(name!=="login_operator") return { data:null, error:{message:"unknown rpc"} };
-    return call("rpc.login_operator", args);
+    if(!["login_operator","apply_sale","adjust_stock","set_stock"].includes(name)){
+      return { data:null, error:{message:"unknown rpc"} };
+    }
+    return call("rpc."+name, args);
   }
   return { auth, from, rpc };
 }};`;

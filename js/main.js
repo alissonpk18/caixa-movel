@@ -147,6 +147,8 @@ function wire(){
     }else{
       const v=parseInt(inp.value,10); if(isNaN(v)||v<0||v>QTY_MAX){ inp.value=p.qty; return; }
       p.qty=v;
+      // correção manual: define o valor absoluto na nuvem (ver js/cloud.js)
+      if(typeof cloudEnqueueStockSet==="function") cloudEnqueueStockSet(p.code, p.qty);
     }
     saveProducts();
     row.classList.toggle("low", p.qty<=settings.lowStock);

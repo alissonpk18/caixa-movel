@@ -37,6 +37,8 @@ function importBackup(file){
         applySettings(data.settings);
         ensureManagerAccess();
         saveUsers(); saveProducts(); saveSales(); saveCash(); saveSettings();
+        // restauração é uma correção absoluta de cada quantidade (ver js/cloud.js)
+        if(typeof cloudEnqueueStockSet==="function") products.forEach(p=>cloudEnqueueStockSet(p.code, p.qty));
         renderManager();
         toast("✓ Backup restaurado","ok");
       },"Substituir tudo");
