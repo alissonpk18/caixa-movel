@@ -406,12 +406,22 @@
   .sheet .found.bad{color:var(--bad)}
   .sheet .err{color:var(--bad);font-size:12.5px;font-weight:700;min-height:16px;margin:0 2px 8px}
 
+  /* Selo de versão — canto inferior direito, discreto. Permite confirmar
+     visualmente quando uma nova versão foi carregada (cache atualizado). */
+  #verBadge{
+    position:fixed;z-index:90;right:6px;bottom:calc(4px + var(--safe-b));
+    font-family:var(--mono);font-size:10px;line-height:1;font-weight:700;
+    color:#fff;background:rgba(20,24,31,.55);padding:3px 6px;border-radius:7px;
+    pointer-events:none;letter-spacing:.3px;
+  }
+
   @media (prefers-reduced-motion: reduce){
     *{animation:none!important;transition:none!important}
   }
 </style>
 </head>
 <body>
+<div id="verBadge" aria-hidden="true"></div>
 <div id="app">
 
   <!-- ============ LOGIN ============ -->
@@ -754,8 +764,13 @@ if(!window.PDV){
    disponível; senão, roda em memória só nesta sessão (com aviso).
    ================================================================ */
 
+/* Versão do app — mantenha em sincronia com CACHE do sw.js.
+   Aparece no canto inferior direito para confirmar visualmente a atualização. */
+const APP_VERSION = "v14";
+
 /* ---------- helpers ---------- */
 const $ = (id) => document.getElementById(id);
+(function(){ const b=document.getElementById("verBadge"); if(b) b.textContent=APP_VERSION; })();
 const money = (v) => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(v||0);
 /* regras de negócio puras vêm do núcleo compartilhado (pdv-core.js) */
 const {
@@ -2109,7 +2124,22 @@ function switchTab(which){
 
 /* ---------- service worker (PWA: instalável e offline) ---------- */
 if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){
-  window.addEventListener("load", ()=>{ navigator.serviceWorker.register("./sw.js").catch(()=>{}); });
+  window.addEventListener("load", ()=>{
+    navigator.serviceWorker.register("./sw.js").then(reg=>{
+      // procura atualização ao abrir e sempre que o app volta ao primeiro plano
+      const check = ()=>{ reg.update().catch(()=>{}); };
+      check();
+      document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) check(); });
+    }).catch(()=>{});
+  });
+  // quando um SW novo assume o controle, recarrega uma vez para a versão
+  // nova valer imediatamente (sem reload na primeira instalação e nunca
+  // com venda em andamento — nesse caso ela vale na próxima abertura)
+  let hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", ()=>{
+    if(!hadController){ hadController = true; return; }
+    if(!state.cart.length) location.reload();
+  });
 }
 
 /* ---------- start ---------- */
