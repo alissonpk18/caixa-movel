@@ -4,9 +4,18 @@
 
    Sem js/config.js preenchido o app roda 100% local; nada aqui executa.
 
-   Modelo v1: uma conta Supabase = uma loja. Todos os aparelhos da loja
-   entram com a mesma conta; os logins de operador (gerente/caixa)
-   continuam locais e são sincronizados como dados da loja (kv).
+   Modelo: a plataforma (você) cria a empresa e cadastra gerente/caixa
+   pelo admin.html. O aparelho do lojista NÃO tem nenhuma tela extra de
+   "conectar à nuvem" — é só o login de sempre (usuário/senha). Se o
+   usuário digitado não existe neste aparelho, a nuvem é consultada
+   (RPC login_operator, que roda no banco e confere a senha com o mesmo
+   hash SHA-256 já usado localmente); se bater, o aparelho se vincula
+   automaticamente àquela empresa e baixa os dados dela. Da próxima vez
+   o login já resolve local, sem round-trip.
+
+   O vínculo aparelho↔empresa usa uma sessão anônima do Supabase Auth
+   (grátis, sem e-mail) só para o RLS saber "este aparelho pertence à
+   empresa X" — habilite Authentication → Anonymous Sign-Ins no projeto.
 
    Estratégia: offline-first. O app opera sempre sobre o storage local;
    esta camada empurra mudanças (push, com debounce) e puxa o estado da
@@ -18,8 +27,7 @@ const CLOUD_LIB_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist
 const CLOUD_PULL_MS = 60000;
 
 let sbClient = null;        // cliente Supabase (null = lib não carregada/sem config)
-let cloudStoreId = null;    // id da loja na nuvem (null = sem sessão)
-let cloudUserEmail = "";
+let cloudStoreId = null;    // id da empresa vinculada a este aparelho (null = ainda não vinculado)
 let cloudApplying = false;  // aplicando um pull: não re-marcar como sujo
 const cloudDirty = { products:false, sales:false, users:false, cash:false, settings:false };
 let cloudPushT = null;
@@ -41,34 +49,45 @@ function cloudLoadLib(){
   });
 }
 
-/* chamado pelo boot(); nunca bloqueia a abertura do app */
+/* chamado pelo boot(); nunca bloqueia a abertura do app. Garante uma
+   sessão anônima (identidade do aparelho perante o RLS) e, se este
+   aparelho já estiver vinculado a uma empresa de uma sessão anterior,
+   retoma a sincronização sem precisar logar de novo. */
 async function cloudInit(){
   if(!cloudEnabled()) return;
-  wireCloudBox();
   try{
     await cloudLoadLib();
     sbClient = window.supabase.createClient(CLOUD_CONFIG.url, CLOUD_CONFIG.anonKey);
     const { data } = await sbClient.auth.getSession();
-    if(data && data.session){
-      cloudUserEmail = (data.session.user && data.session.user.email) || "";
-      await cloudEnsureStore();
-      await cloudSync();
+    if(!data || !data.session){
+      const r = await sbClient.auth.signInAnonymously();
+      if(r.error) throw r.error;
+    }
+    const { data:dl, error } = await sbClient.from("device_links").select("store_id").maybeSingle();
+    if(!error && dl && dl.store_id){
+      cloudStoreId = dl.store_id;
+      await cloudPull();
       cloudStartLoops();
     }
-  }catch(e){ /* sem rede ou nuvem fora do ar: segue 100% local */ }
-  renderCloudBox();
+  }catch(e){ /* sem rede, nuvem fora do ar, ou sign-in anônimo desabilitado: segue local */ }
 }
 
-/* garante a linha da loja desta conta (primeiro acesso cria) */
-async function cloudEnsureStore(){
-  let { data, error } = await sbClient.from("stores").select("id").maybeSingle();
-  if(error) throw error;
-  if(!data){
-    const r = await sbClient.from("stores").insert({ name:"Minha loja", email:cloudUserEmail }).select("id").single();
-    if(r.error) throw r.error;
-    data = r.data;
-  }
-  cloudStoreId = data.id;
+/* chamado pelo login() quando o usuário não existe neste aparelho.
+   Pergunta à nuvem "de qual empresa é este usuário?", com a senha
+   conferida no banco (mesmo hash SHA-256 do modo local). Se bater,
+   vincula o aparelho e baixa os dados da empresa. */
+async function cloudRouteLogin(username, plainPassword){
+  if(!cloudEnabled() || !sbClient) return false;
+  try{
+    const hash = await hashPassword(plainPassword);
+    if(!hash) return false;
+    const { data, error } = await sbClient.rpc("login_operator", { p_username:username, p_hash:hash });
+    if(error || !data || !data.length) return false;
+    cloudStoreId = data[0].store_id;
+    await cloudPull();
+    cloudStartLoops();
+    return true;
+  }catch(e){ return false; }
 }
 
 /* ---------- push (local → nuvem) ---------- */
@@ -76,7 +95,7 @@ async function cloudEnsureStore(){
 function cloudMarkDirty(kind){
   if(!cloudEnabled() || cloudApplying) return;
   if(kind in cloudDirty) cloudDirty[kind]=true;
-  if(!cloudOn()) return;               // sem sessão: fica pendente para o próximo sync
+  if(!cloudOn()) return;               // ainda não vinculado: fica pendente
   clearTimeout(cloudPushT);
   cloudPushT=setTimeout(()=>{ cloudPush().catch(()=>{}); }, 1500);
 }
@@ -145,14 +164,6 @@ async function cloudPull(){
 
   const kvMap = {};
   (kv.data||[]).forEach(r=>{ kvMap[r.key]=r.value; });
-  const cloudEmpty = !(pr.data||[]).length && !(sl.data||[]).length && !kvMap.users;
-  if(cloudEmpty){
-    // loja recém-criada: em vez de zerar o aparelho, sobe o que há nele
-    Object.keys(cloudDirty).forEach(k=>{ cloudDirty[k]=true; });
-    await sset("pdv:cloudSalesMark", null);
-    await cloudPush();
-    return;
-  }
 
   cloudApplying = true;
   try{
@@ -170,21 +181,6 @@ async function cloudPull(){
   cloudRefreshUI();
 }
 
-/* sincronização: no primeiro contato deste aparelho com esta loja a
-   nuvem manda (descarta pendências locais — que podem ser só o seed de
-   fábrica); depois de vinculado, é push das pendências e pull. */
-async function cloudSync(){
-  const bound = await sget("pdv:cloudBound");
-  if(bound === cloudStoreId){
-    try{ await cloudPush(); }catch(e){}
-    await cloudPull();
-  }else{
-    Object.keys(cloudDirty).forEach(k=>{ cloudDirty[k]=false; });
-    await cloudPull();          // nuvem vazia? o pull semeia a partir do local
-    await sset("pdv:cloudBound", cloudStoreId);
-  }
-}
-
 function cloudStartLoops(){
   if(cloudStartLoops.done) return;
   cloudStartLoops.done = true;
@@ -193,79 +189,15 @@ function cloudStartLoops(){
   setInterval(()=>{ if(!document.hidden) cloudSync().catch(()=>{}); }, CLOUD_PULL_MS);
 }
 
+async function cloudSync(){
+  try{ await cloudPush(); }catch(e){}
+  try{ await cloudPull(); }catch(e){}
+}
+
 /* re-renderiza o que estiver na tela após um pull */
 function cloudRefreshUI(){
   try{
     if(state.user && state.user.role==="gerente" && $("gerente").classList.contains("is-active")) renderManager();
     if(state.user && state.user.role==="operador") renderCart();
   }catch(e){}
-}
-
-/* ---------- conta da loja (UI na tela de login) ---------- */
-function wireCloudBox(){
-  const box=$("cloudBox");
-  if(!box || wireCloudBox.done) return;
-  wireCloudBox.done=true;
-  box.style.display="";
-  $("cloudLoginBtn").addEventListener("click", ()=>cloudAuth(false));
-  $("cloudSignupBtn").addEventListener("click", ()=>cloudAuth(true));
-  $("cloudLogoutBtn").addEventListener("click", cloudLogoutStore);
-}
-
-async function cloudAuth(isSignup){
-  if(cloudAuth.busy) return;
-  cloudAuth.busy=true;
-  try{
-    const errEl=$("cloudErr");
-    if(!sbClient){ errEl.textContent="Nuvem indisponível agora — verifique a internet e recarregue."; return; }
-    const email=$("cloudEmail").value.trim(), pass=$("cloudPass").value;
-    if(!email || pass.length<6){ errEl.textContent="Informe o e-mail e uma senha com 6+ caracteres."; return; }
-    errEl.textContent="";
-    if(isSignup){
-      const { data, error } = await sbClient.auth.signUp({ email, password:pass });
-      if(error){ errEl.textContent=cloudErrMsg(error); return; }
-      if(!data || !data.session){
-        errEl.textContent="Conta criada! Confirme o e-mail que enviamos e toque em Entrar.";
-        return;
-      }
-    }else{
-      const { error } = await sbClient.auth.signInWithPassword({ email, password:pass });
-      if(error){ errEl.textContent=cloudErrMsg(error); return; }
-    }
-    const { data:s } = await sbClient.auth.getSession();
-    cloudUserEmail = (s && s.session && s.session.user && s.session.user.email) || email;
-    await cloudEnsureStore();
-    await cloudSync();
-    cloudStartLoops();
-    $("cloudPass").value="";
-    renderCloudBox();
-    toast("✓ Loja conectada — dados sincronizados","ok");
-  }catch(e){
-    $("cloudErr").textContent=cloudErrMsg(e);
-  }finally{ cloudAuth.busy=false; }
-}
-
-function cloudErrMsg(e){
-  const m=String((e && e.message) || e || "");
-  if(/invalid login/i.test(m))      return "E-mail ou senha incorretos.";
-  if(/already registered/i.test(m)) return "Este e-mail já tem conta — use Entrar.";
-  if(/not confirmed/i.test(m))      return "Confirme o e-mail antes de entrar.";
-  if(/fetch|network/i.test(m))      return "Sem conexão com a nuvem — tente de novo.";
-  return "Não deu certo: "+m;
-}
-
-async function cloudLogoutStore(){
-  try{ await sbClient.auth.signOut(); }catch(e){}
-  cloudStoreId=null; cloudUserEmail="";
-  renderCloudBox();
-  toast("Loja desconectada da nuvem","");
-}
-
-function renderCloudBox(){
-  const box=$("cloudBox");
-  if(!box || !cloudEnabled()) return;
-  const on=cloudOn();
-  $("cloudForm").style.display  = on ? "none" : "";
-  $("cloudStatus").style.display= on ? "" : "none";
-  if(on) $("cloudWho").textContent="✓ Loja conectada: "+cloudUserEmail;
 }

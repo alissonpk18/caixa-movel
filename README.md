@@ -66,31 +66,42 @@ Ou publique numa hospedagem estática (ex.: **GitHub Pages**) e acesse a URL.
 
 Por padrão o app é 100% local. Preenchendo uma configuração, ele passa a
 **sincronizar estoque, vendas, caixa e usuários entre aparelhos** via
-[Supabase](https://supabase.com) (plano gratuito) — sem servidor próprio:
+[Supabase](https://supabase.com) (plano gratuito) — sem servidor próprio.
+O lojista **não vê nenhuma tela extra**: o aparelho usa o login de sempre
+(usuário/senha) e a sincronização acontece por trás, de forma automática.
 
 1. Crie um projeto grátis em supabase.com.
-2. No **SQL Editor**, execute o conteúdo de [`supabase/schema.sql`](supabase/schema.sql)
-   (cria as tabelas e o isolamento por loja via Row Level Security).
-3. Em **Settings → API**, copie a *Project URL* e a chave *anon public*
+2. Em **Authentication → Sign In / Providers**, habilite **Anonymous
+   Sign-Ins** (dá a cada aparelho uma identidade para o isolamento por
+   empresa; não pede e-mail de ninguém).
+3. No **SQL Editor**, execute o conteúdo de [`supabase/schema.sql`](supabase/schema.sql)
+   (cria as tabelas, a função de login e o isolamento por empresa via
+   Row Level Security).
+4. Em **Settings → API**, copie a *Project URL* e a chave *anon public*
    para o arquivo [`js/config.js`](js/config.js) e publique o site.
-4. No app, a tela de login ganha o cartão **"☁ Loja na nuvem"**: crie a
-   conta da loja (e-mail/senha) e entre com ela em todos os aparelhos.
+5. Pelo **console do administrador** (abaixo), crie a empresa e cadastre
+   ao menos um gerente. É só isso — na primeira vez que alguém digitar
+   esse usuário/senha em qualquer aparelho, o app descobre sozinho a que
+   empresa ele pertence e baixa os dados dela.
 
-Modelo v1: **uma conta = uma loja**. Os logins de operador (gerente/caixa)
-continuam sendo os do próprio app, sincronizados como dados da loja. O app
-segue *offline-first*: opera local e sincroniza quando há internet (última
-escrita vence; vendas são somadas, nunca sobrescritas). No primeiro acesso
-de um aparelho, os dados da nuvem substituem os locais.
+Por trás dos panos: quando o usuário digitado não existe ainda naquele
+aparelho, o app consulta uma função no banco (`login_operator`) que
+confere a senha com o mesmo hash já usado localmente e, se bater, vincula
+o aparelho àquela empresa. Da próxima vez o login resolve local, sem ida
+à nuvem. O app segue *offline-first*: opera local e sincroniza quando há
+internet (última escrita vence; vendas são somadas, nunca sobrescritas).
 
 ### Console do administrador (`admin.html`)
 
-Para quem opera o SaaS: a página **`admin.html`** lista todas as empresas
-e permite gerenciar os **gerentes e caixas de cada uma** (criar acesso,
-trocar senha, liberar reposição de estoque, remover, renomear a empresa).
-Os aparelhos da loja recebem as mudanças na sincronização seguinte.
+Para quem opera o SaaS: a página **`admin.html`** é de onde você cria as
+**empresas** e cadastra os **gerentes e caixas de cada uma** (criar
+acesso, trocar senha, liberar reposição de estoque, remover, renomear a
+empresa). Os aparelhos recebem as mudanças na sincronização seguinte.
 
-Para promover a sua conta a administradora, crie-a normalmente pelo app e
-rode no SQL Editor do Supabase:
+O console tem seu próprio login (e-mail/senha real, só para você). Para
+criar essa conta, use o painel do Supabase — **Authentication → Users →
+Add user** (marque *Auto Confirm User*) — e depois promova-a a
+administradora pelo SQL Editor:
 
 ```sql
 insert into public.admins (user_id)
@@ -98,7 +109,8 @@ select id from auth.users where email = 'seu@email.com';
 ```
 
 O acesso é garantido pelo banco (RLS): contas comuns não enxergam as
-lojas alheias mesmo chamando a API diretamente.
+empresas alheias mesmo chamando a API diretamente, e só a função de
+login pode vincular um aparelho a uma empresa (nunca o cliente direto).
 
 ### Instalar no celular (PWA)
 

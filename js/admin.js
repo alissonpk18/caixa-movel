@@ -77,6 +77,17 @@ function enter(email){
   loadStores();
 }
 
+async function createStore(){
+  const name=$("ns_name").value.trim();
+  const email=$("ns_email").value.trim();
+  const err=$("ns_err"); err.textContent="";
+  if(!name){ err.textContent="Informe o nome da empresa."; return; }
+  const { error } = await sb.from("stores").insert({ name, email });
+  if(error){ err.textContent="Não foi possível criar — tente de novo."; return; }
+  $("ns_name").value=""; $("ns_email").value="";
+  await loadStores();
+}
+
 async function loadStores(){
   const { data, error } = await sb.from("stores").select("id,name,email,created_at");
   const el=$("storeList");
@@ -112,7 +123,7 @@ async function loadUsers(){
 
 function renderUsers(){
   const el=$("userList");
-  if(!curUsers.length){ el.innerHTML='<div class="sub">Nenhum acesso — o app criará o gerente padrão no primeiro uso.</div>'; return; }
+  if(!curUsers.length){ el.innerHTML='<div class="sub">Nenhum acesso ainda — cadastre pelo menos um gerente abaixo para a empresa poder logar.</div>'; return; }
   el.innerHTML = curUsers.map((u,i)=>`
     <div class="user">
       <div class="grow"><span class="nm">${esc(u.name||u.username)}</span> <span class="un">@${esc(u.username)}</span></div>
@@ -188,5 +199,6 @@ $("admPass").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
 $("admLogoutBtn").addEventListener("click", async ()=>{ await sb.auth.signOut(); location.reload(); });
 $("backBtn").addEventListener("click", ()=>{ $("admStore").style.display="none"; $("admStores").style.display=""; loadStores(); });
 $("stSaveBtn").addEventListener("click", saveStoreName);
+$("ns_addBtn").addEventListener("click", createStore);
 $("nu_addBtn").addEventListener("click", addUser);
 init();

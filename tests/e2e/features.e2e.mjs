@@ -9,6 +9,9 @@ const check = (name, cond, extra = "") => {
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const ctx = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
+// modo local: aborta CDNs externos na hora, sem esperar a rede real
+// falhar sozinha (fica rápido e determinístico em qualquer ambiente)
+await ctx.route(/cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net/, route => route.abort());
 const page = await ctx.newPage();
 const errors = [];
 page.on("pageerror", e => errors.push("pageerror: " + e.message));

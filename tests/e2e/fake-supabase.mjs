@@ -1,20 +1,103 @@
-/* Supabase falso para os E2E — em memória, persistido em localStorage
-   (sobrevive a reload = simula outro aparelho / outra aba na mesma loja).
-   Implementa o subconjunto usado por js/cloud.js e js/admin.js, incluindo
-   uma simulação de RLS: cada conta vê a própria loja; contas presentes
-   em `admins` veem tudo (como as políticas de supabase/schema.sql). */
+/* Supabase falso para os E2E — sem rede real. O "banco" vive em memória
+   NESTE processo Node (módulo compartilhado por todos os contextos de
+   navegador do arquivo de teste), exposto às páginas via
+   `context.exposeBinding` — assim vários "aparelhos" (contextos
+   separados, cada um com seu próprio localStorage/sessão) enxergam o
+   mesmo banco, igual ao Supabase de verdade. Só a sessão (qual
+   identidade este aparelho usa) fica no localStorage de cada contexto.
+
+   Implementa o subconjunto usado por js/cloud.js e js/admin.js:
+   - auth.signInAnonymously(): identidade do aparelho (sem e-mail).
+   - auth.signUp/signInWithPassword: login real, só usado pelo admin.html.
+   - from(table): CRUD com uma simulação de RLS (cada aparelho só vê a
+     própria empresa via device_links; is_admin() enxerga tudo).
+   - rpc('login_operator', {p_username,p_hash}): espelha a função SQL em
+     supabase/schema.sql — procura o usuário em TODAS as empresas
+     (kv.key='users'), confere o hash e, se bater, vincula o aparelho
+     (device_links) e devolve o store_id. */
+
+let DB = { stores:[], products:[], sales:[], kv:[], admins:[], device_links:[], n:1 };
+
+function keyOf(t,r){
+  if(t==="stores") return r.id;
+  if(t==="admins") return r.user_id;
+  if(t==="device_links") return r.auth_uid;
+  if(t==="products") return r.store_id+"|"+r.code;
+  if(t==="sales") return r.store_id+"|"+r.id;
+  return r.store_id+"|"+r.key;
+}
+
+function handleFakeApi({ fn, uid, args }){
+  if(fn==="rpc.login_operator"){
+    if(!uid) return { data:[], error:null };
+    for(const row of DB.kv.filter(r=>r.key==="users")){
+      const list = Array.isArray(row.value) ? row.value : [];
+      const u = list.find(x=>String(x.username||"").toLowerCase()===String(args.p_username).toLowerCase()
+        && x.passHash && x.passHash===args.p_hash);
+      if(u){
+        DB.device_links = DB.device_links.filter(x=>x.auth_uid!==uid);
+        DB.device_links.push({ auth_uid:uid, store_id:row.store_id, linked_at:new Date().toISOString() });
+        return { data:[{ store_id:row.store_id, name:u.name||"", role:u.role||"operador", can_add_stock:!!u.canAddStock }], error:null };
+      }
+    }
+    return { data:[], error:null };
+  }
+  if(fn==="from.exec"){
+    const { table:t, op, rows, eq, not, single, maybe } = args;
+    if(!uid) return { data:null, error:{ message:"not authenticated" } };
+    const admin = DB.admins.some(a=>a.user_id===uid);
+    const myLink = DB.device_links.find(x=>x.auth_uid===uid);
+    const my = (DB.stores.find(x=>x.owner===uid)||{}).id || (myLink && myLink.store_id);
+    const visible = r =>
+      t==="admins" ? r.user_id===uid :
+      t==="stores" ? (r.owner===uid || admin) :
+      t==="device_links" ? r.auth_uid===uid :
+      (r.store_id===my || admin);
+    const list = DB[t] || (DB[t]=[]);
+    if(op==="insert" || op==="upsert"){
+      rows.forEach(r=>{
+        const isNew = !list.some(x=>keyOf(t,x)===keyOf(t,r));
+        if(t==="stores" && isNew){ r.id = r.id || ("store-"+(DB.n++)); }
+        const i = list.findIndex(x=>keyOf(t,x)===keyOf(t,r));
+        if(i>=0){ if(op==="upsert") list[i]=Object.assign({}, list[i], r); }
+        else list.push(r);
+      });
+      const out = rows.map(r=>list.find(x=>keyOf(t,x)===keyOf(t,r))).filter(Boolean).filter(visible);
+      if(single) return { data: out[0]||null, error: out[0]?null:{message:"no rows"} };
+      return { data: out, error:null };
+    }
+    let out = list.filter(visible);
+    (eq||[]).forEach(([c,v])=>{ out = out.filter(r=>r[c]===v); });
+    if(not){
+      const l = not[2].slice(1,-1).split(",").map(x=>x.replace(/^"|"$/g,""));
+      out = out.filter(r=>!l.includes(String(r[not[0]])));
+    }
+    if(op==="delete"){
+      const gone = new Set(out.map(r=>keyOf(t,r)));
+      DB[t] = list.filter(r=>!gone.has(keyOf(t,r)));
+      return { data:null, error:null };
+    }
+    if(maybe || single) return { data: out[0]||null, error: (single && !out[0])?{message:"no rows"}:null };
+    return { data: out, error:null };
+  }
+  return { data:null, error:{ message:"unknown fn "+fn } };
+}
+
 export const FAKE_LIB = `
 window.supabase = { createClient: function(){
-  const load = () => JSON.parse(localStorage.getItem("fake:db") || '{"stores":[],"products":[],"sales":[],"kv":[],"admins":[],"n":1}');
-  const save = (d) => localStorage.setItem("fake:db", JSON.stringify(d));
   const sess = () => JSON.parse(localStorage.getItem("fake:session") || "null");
+  const setSess = (s) => localStorage.setItem("fake:session", JSON.stringify(s));
+  const call = (fn, args) => window.__fakeApi({ fn, uid: (sess()&&sess().user.id)||null, args });
   const auth = {
     async getSession(){ return { data: { session: sess() } }; },
-    async signUp({email}){ localStorage.setItem("fake:session", JSON.stringify({user:{id:"u-"+email, email}})); return { data:{ session: sess() }, error:null }; },
-    async signInWithPassword({email}){ localStorage.setItem("fake:session", JSON.stringify({user:{id:"u-"+email, email}})); return { data:{ session: sess() }, error:null }; },
+    async signInAnonymously(){
+      if(!sess()) setSess({ user: { id: "anon-"+Math.random().toString(36).slice(2), email: null } });
+      return { data: { session: sess() }, error: null };
+    },
+    async signUp({email}){ setSess({user:{id:"u-"+email, email}}); return { data:{ session: sess() }, error:null }; },
+    async signInWithPassword({email}){ setSess({user:{id:"u-"+email, email}}); return { data:{ session: sess() }, error:null }; },
     async signOut(){ localStorage.removeItem("fake:session"); return { error:null }; }
   };
-  const keyOf = (t,r) => t==="stores" ? r.id : t==="admins" ? r.user_id : t==="products" ? r.store_id+"|"+r.code : t==="sales" ? r.store_id+"|"+r.id : r.store_id+"|"+r.key;
   function from(t){
     const q = { op:"select", rows:null, eq:[], not:null, single:false, maybe:false };
     const api = {
@@ -27,54 +110,41 @@ window.supabase = { createClient: function(){
       order(){ return api; }, limit(){ return api; },
       maybeSingle(){ q.maybe=true; return api; },
       single(){ q.single=true; return api; },
-      then(res,rej){ return Promise.resolve(exec()).then(res,rej); }
+      then(res,rej){ return call("from.exec", Object.assign({table:t}, q)).then(res,rej); }
     };
-    function exec(){
-      const db = load(); let rows = db[t] || [];
-      const s = sess(); const uidv = s && s.user.id;
-      if(!uidv) return { data:null, error:{ message:"not authenticated" } };
-      const admin = (db.admins||[]).some(a=>a.user_id===uidv);          // is_admin()
-      const my = (db.stores.find(x=>x.owner===uidv)||{}).id;
-      const visible = r =>                                              // "RLS"
-        t==="admins" ? r.user_id===uidv :
-        t==="stores" ? (r.owner===uidv || admin) :
-        (r.store_id===my || admin);
-      if(q.op==="insert" || q.op==="upsert"){
-        q.rows.forEach(r=>{
-          const isNew = !rows.some(x=>keyOf(t,x)===keyOf(t,r)) ;
-          if(t==="stores" && isNew){ r.id = r.id || ("store-"+(db.n++)); r.owner = r.owner || uidv; }
-          const i = rows.findIndex(x=>keyOf(t,x)===keyOf(t,r));
-          if(i>=0){ if(q.op==="upsert") rows[i]=Object.assign({}, rows[i], r); }
-          else rows.push(r);
-        });
-        db[t]=rows; save(db);
-        const out = q.rows.map(r=>rows.find(x=>keyOf(t,x)===keyOf(t,r))).filter(Boolean).filter(visible);
-        if(q.single) return { data: out[0]||null, error: out[0]?null:{message:"no rows"} };
-        return { data: out, error:null };
-      }
-      let out = rows.filter(visible);
-      q.eq.forEach(([c,v])=>{ out = out.filter(r=>r[c]===v); });
-      if(q.not){
-        const list = q.not[2].slice(1,-1).split(",").map(x=>x.replace(/^"|"$/g,""));
-        out = out.filter(r=>!list.includes(String(r[q.not[0]])));
-      }
-      if(q.op==="delete"){
-        const gone = new Set(out.map(r=>keyOf(t,r)));
-        db[t] = rows.filter(r=>!gone.has(keyOf(t,r))); save(db);
-        return { data:null, error:null };
-      }
-      if(q.maybe || q.single) return { data: out[0]||null, error: (q.single && !out[0])?{message:"no rows"}:null };
-      return { data: out, error:null };
-    }
     return api;
   }
-  return { auth, from };
+  async function rpc(name, args){
+    if(name!=="login_operator") return { data:null, error:{message:"unknown rpc"} };
+    return call("rpc.login_operator", args);
+  }
+  return { auth, from, rpc };
 }};`;
 
 export const FAKE_CONFIG = '"use strict"; const CLOUD_CONFIG = { url: "https://fake.supabase.co", anonKey: "fake-key" };';
 
-/* instala as rotas que ligam o modo nuvem falso num contexto Playwright */
+/* instala as rotas/bindings que ligam o modo nuvem falso num contexto Playwright */
 export async function wireFakeCloud(ctx){
   await ctx.route("**/js/config.js", route => route.fulfill({ contentType:"application/javascript", body: FAKE_CONFIG }));
   await ctx.route("**cdn.jsdelivr.net/npm/@supabase/**", route => route.fulfill({ contentType:"application/javascript", body: FAKE_LIB }));
+  await ctx.exposeBinding("__fakeApi", (_source, payload) => handleFakeApi(payload));
 }
+
+/* semeia uma empresa direto no banco falso (equivalente a já ter sido
+   criada e ter usuários cadastrados pelo admin.html) — usado pelos testes
+   que não precisam dirigir a UI do admin para preparar o cenário. */
+export function seedFakeStore({ storeId, name, users, products }){
+  DB.stores.push({ id: storeId, name, email:"", owner:null });
+  DB.kv.push({ store_id: storeId, key:"users", value: users });
+  (products||[]).forEach(p => DB.products.push(Object.assign({ store_id: storeId }, p)));
+}
+
+/* promove uma conta a administradora da plataforma (equivalente ao
+   `insert into public.admins` do schema, feito manualmente pelo SQL). */
+export function seedAdmin(email){
+  DB.admins.push({ user_id: "u-"+email });
+}
+
+/* inspeciona o banco falso direto do Node (sem passar por localStorage
+   de nenhum contexto — o banco agora é compartilhado entre eles). */
+export function peekFakeDb(){ return DB; }
