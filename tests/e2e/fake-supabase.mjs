@@ -78,7 +78,7 @@ function handleFakeApi({ fn, uid, args }){
     return { data:null, error:null };
   }
   if(fn==="from.exec"){
-    const { table:t, op, rows, eq, not, single, maybe } = args;
+    const { table:t, op, rows, eq, not, gt, single, maybe } = args;
     if(!uid) return { data:null, error:{ message:"not authenticated" } };
     const admin = DB.admins.some(a=>a.user_id===uid);
     const myLink = DB.device_links.find(x=>x.auth_uid===uid);
@@ -109,6 +109,7 @@ function handleFakeApi({ fn, uid, args }){
     }
     let out = list.filter(visible);
     (eq||[]).forEach(([c,v])=>{ out = out.filter(r=>r[c]===v); });
+    if(gt) out = out.filter(r=>r[gt[0]] > gt[1]);
     if(not){
       const l = not[2].slice(1,-1).split(",").map(x=>x.replace(/^"|"$/g,""));
       out = out.filter(r=>!l.includes(String(r[not[0]])));
@@ -140,7 +141,7 @@ window.supabase = { createClient: function(){
     async signOut(){ localStorage.removeItem("fake:session"); return { error:null }; }
   };
   function from(t){
-    const q = { op:"select", rows:null, eq:[], not:null, single:false, maybe:false };
+    const q = { op:"select", rows:null, eq:[], not:null, gt:null, single:false, maybe:false };
     const api = {
       select(){ return api; },
       insert(r){ q.op="insert"; q.rows=Array.isArray(r)?r:[r]; return api; },
@@ -148,6 +149,7 @@ window.supabase = { createClient: function(){
       delete(){ q.op="delete"; return api; },
       eq(c,v){ q.eq.push([c,v]); return api; },
       not(c,o,v){ q.not=[c,o,v]; return api; },
+      gt(c,v){ q.gt=[c,v]; return api; },
       order(){ return api; }, limit(){ return api; },
       maybeSingle(){ q.maybe=true; return api; },
       single(){ q.single=true; return api; },

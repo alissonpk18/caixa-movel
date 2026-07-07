@@ -131,8 +131,49 @@ check("senha errada não loga em lugar nenhum", (await pageB.textContent("#login
 check("sem erros de JS (aparelho A)", errorsA.length === 0, errorsA.join(" | "));
 check("sem erros de JS (aparelho B)", errorsB.length === 0, errorsB.join(" | "));
 
+// força um ciclo de sync completo (push+pull) para checar a marca —
+// o debounce normal só agenda o push; o pull roda no laço periódico/
+// eventos de visibilidade, que este teste não espera acontecer sozinho
+await pageA.evaluate(() => cloudSync());
+const salesMark = await pageA.evaluate(store => sget("pdv:cloudSalesPullMark:" + store), STORE_ID);
+check("marca do pull incremental de vendas foi gravada (A-05)", typeof salesMark === "string" && salesMark.length > 0, "mark=" + salesMark);
+
+/* ---- mesmo aparelho reaproveitado por OUTRA empresa: o sync
+   incremental de vendas (A-05) mescla em vez de substituir, então sem
+   essa guarda um aparelho trocado de empresa ficaria com vendas de
+   duas empresas misturadas. ---- */
+const STORE2_ID = "store-outra-empresa";
+const USERS2 = [{ username:"gerente2", name:"Outro Gerente", role:"gerente", canAddStock:true, passHash: passHash("outrasenha") }];
+const PRODUCTS2 = [{ code:"9999999999999", name:"Produto da Outra Empresa", price:1, cost:null, qty:10, exp:null }];
+seedFakeStore({ storeId: STORE2_ID, name: "Outra Empresa", users: USERS2, products: PRODUCTS2 });
+
+const ctxC = await browser.newContext();
+await wireFakeCloud(ctxC);
+const pageC = await ctxC.newPage();
+const errorsC = [];
+pageC.on("pageerror", e => errorsC.push("pageerror: " + e.message));
+
+await pageC.goto(BASE);
+await pageC.fill("#loginUser", "donagerente");
+await pageC.fill("#loginPass", "segredo123");
+await pageC.click("#loginBtn");
+await pageC.waitForSelector("#gerente.is-active", { timeout: 8000 });
+await pageC.waitForFunction(() => DB.sales.length === 3, null, { timeout: 8000 });
+check("aparelho C (novo) baixa o histórico da 1ª empresa normalmente", true);
+
+await pageC.click("#logoutGer");
+await pageC.fill("#loginUser", "gerente2");
+await pageC.fill("#loginPass", "outrasenha");
+await pageC.click("#loginBtn");
+await pageC.waitForSelector("#gerente.is-active", { timeout: 8000 });
+await pageC.waitForFunction(() => DB.products.some(p => p.code === "9999999999999"), null, { timeout: 8000 });
+const salesAfterSwitch = await pageC.evaluate(() => DB.sales.length);
+check("trocar de empresa no mesmo aparelho não mistura vendas da empresa anterior", salesAfterSwitch === 0, "sales=" + salesAfterSwitch);
+check("sem erros de JS (aparelho C)", errorsC.length === 0, errorsC.join(" | "));
+
 await ctxA.close();
 await ctxB.close();
+await ctxC.close();
 await browser.close();
 if (failures) { console.error(`\n${failures} FALHA(S) NO MODO NUVEM`); process.exit(1); }
 console.log("\nTODOS OS TESTES DO MODO NUVEM PASSARAM");

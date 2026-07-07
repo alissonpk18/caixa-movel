@@ -96,7 +96,18 @@ async function cloudRouteLogin(username, plainPassword){
     if(!hash) return false;
     const { data, error } = await sbClient.rpc("login_operator", { p_username:username, p_hash:hash });
     if(error || !data || !data.length) return false;
-    cloudStoreId = data[0].store_id;
+    const newStoreId = data[0].store_id;
+    /* aparelho usado antes por OUTRA empresa (raro — reaproveitado,
+       revogado e realugado etc.): zera o cache local antes de puxar,
+       senão o merge incremental de vendas (cloudPull) misturaria
+       vendas de duas empresas diferentes no mesmo aparelho */
+    const prevStoreId = await sget("pdv:cloudLastStoreId");
+    if(prevStoreId && prevStoreId !== newStoreId){
+      DB.products=[]; DB.sales=[]; DB.users=[]; DB.cash={ open:null, history:[] };
+      await sset("pdv:cloudSalesPullMark:"+prevStoreId, null);
+    }
+    cloudStoreId = newStoreId;
+    await sset("pdv:cloudLastStoreId", newStoreId);
     await cloudPull();
     cloudStartLoops();
     return true;
@@ -240,13 +251,30 @@ function cloudHandleRevoked(){
   }catch(e){}
 }
 
-/* ---------- pull (nuvem → local) ---------- */
+/* ---------- pull (nuvem → local) ----------
+   Produtos e kv continuam vindo por inteiro a cada pull — catálogos e
+   documentos pequenos, e enxergar o conjunto todo é o jeito mais simples
+   de refletir exclusões feitas em outro aparelho. Vendas são a parte que
+   cresce sem limite com o tempo (era o "megabytes por minuto" do achado
+   A-05): agora são incrementais — só as mais novas que a última recebida
+   por ESTA empresa, mescladas ao que o aparelho já tinha (nunca
+   substituídas). Histórico muito antigo, além do que já foi baixado uma
+   vez, fica só no servidor — relatórios de período longo buscam sob
+   demanda quando precisarem, não a cada sincronização de rotina. */
 async function cloudPull(){
   if(!cloudOn() || !navigator.onLine) return;
   if(!(await cloudStillLinked())){ cloudHandleRevoked(); return; }
+
+  const markKey = "pdv:cloudSalesPullMark:"+cloudStoreId;
+  const mark = await sget(markKey);
+  const base = sbClient.from("sales").select("data,at").eq("store_id",cloudStoreId).limit(5000);
+  const salesQuery = mark
+    ? base.gt("at", mark).order("at",{ascending:true})   // backlog novo: mais antigo primeiro
+    : base.order("at",{ascending:false});                 // primeira vez: as 5000 mais recentes
+
   const [pr, sl, kv] = await Promise.all([
     sbClient.from("products").select("code,name,price,cost,qty,exp").eq("store_id",cloudStoreId),
-    sbClient.from("sales").select("data").eq("store_id",cloudStoreId).order("at",{ascending:false}).limit(5000),
+    salesQuery,
     sbClient.from("kv").select("key,value").eq("store_id",cloudStoreId)
   ]);
   const err = pr.error || sl.error || kv.error;
@@ -254,6 +282,7 @@ async function cloudPull(){
 
   const kvMap = {};
   (kv.data||[]).forEach(r=>{ kvMap[r.key]=r.value; });
+  const salesRows = (sl.data||[]).slice().sort((a,b)=> a.at.localeCompare(b.at));
 
   cloudApplying = true;
   try{
@@ -261,7 +290,15 @@ async function cloudPull(){
       code:p.code, name:p.name, price:Number(p.price),
       cost:(p.cost==null?undefined:Number(p.cost)), qty:p.qty, exp:p.exp||null
     })));
-    DB.sales = sanitizeSales((sl.data||[]).map(r=>r.data));
+
+    const incoming = sanitizeSales(salesRows.map(r=>r.data)) || [];
+    if(incoming.length){
+      const known = new Set(DB.sales.map(s=>s.id));
+      incoming.forEach(s=>{ if(!known.has(s.id)){ DB.sales.push(s); known.add(s.id); } });
+      DB.sales.sort((a,b)=> b.ts.localeCompare(a.ts)); // mais recente primeiro (ordem que a UI espera)
+      await sset(markKey, salesRows[salesRows.length-1].at);
+    }
+
     if(kvMap.users)    DB.users = sanitizeUsers(kvMap.users);
     if(kvMap.cash)     DB.cash  = sanitizeCash(kvMap.cash) || DB.cash;
     if(kvMap.settings) applySettings(kvMap.settings);
