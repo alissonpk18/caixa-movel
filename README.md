@@ -62,6 +62,26 @@ Ou publique numa hospedagem estática (ex.: **GitHub Pages**) e acesse a URL.
 | Gerência  | `gerente` | `1234`|
 | Caixa     | `caixa`   | `1234`|
 
+## Modo SaaS (opcional): loja na nuvem
+
+Por padrão o app é 100% local. Preenchendo uma configuração, ele passa a
+**sincronizar estoque, vendas, caixa e usuários entre aparelhos** via
+[Supabase](https://supabase.com) (plano gratuito) — sem servidor próprio:
+
+1. Crie um projeto grátis em supabase.com.
+2. No **SQL Editor**, execute o conteúdo de [`supabase/schema.sql`](supabase/schema.sql)
+   (cria as tabelas e o isolamento por loja via Row Level Security).
+3. Em **Settings → API**, copie a *Project URL* e a chave *anon public*
+   para o arquivo [`js/config.js`](js/config.js) e publique o site.
+4. No app, a tela de login ganha o cartão **"☁ Loja na nuvem"**: crie a
+   conta da loja (e-mail/senha) e entre com ela em todos os aparelhos.
+
+Modelo v1: **uma conta = uma loja**. Os logins de operador (gerente/caixa)
+continuam sendo os do próprio app, sincronizados como dados da loja. O app
+segue *offline-first*: opera local e sincroniza quando há internet (última
+escrita vence; vendas são somadas, nunca sobrescritas). No primeiro acesso
+de um aparelho, os dados da nuvem substituem os locais.
+
 ### Instalar no celular (PWA)
 
 Abra a URL no navegador do celular e use **"Adicionar à tela inicial"**. Após a
@@ -74,6 +94,9 @@ primeira visita, o app abre **offline**.
 | `index.html`               | Redireciona a raiz para o app (URL limpa).      |
 | `pdv-mobile.html`          | Casca do app: só o markup das telas.            |
 | `css/pdv.css`              | Todo o estilo do app.                           |
+| `js/config.js`             | Configuração da nuvem (vazia = modo local).     |
+| `js/cloud.js`              | Sincronização com a nuvem (modo SaaS).          |
+| `supabase/schema.sql`      | Esquema do banco para o modo SaaS.              |
 | `js/helpers.js`            | Utilitários e versão do app.                    |
 | `js/store.js`              | Camada de dados (storage, DB, sessão, boot).    |
 | `js/feedback.js`           | Som, toast e faixa de status.                   |
