@@ -15,6 +15,6 @@
    acessa as linhas da própria loja.
    ================================================================ */
 const CLOUD_CONFIG = {
-  url: "",      // ex.: "https://abcdefgh.supabase.co"
-  anonKey: ""   // ex.: "eyJhbGciOiJIUzI1NiIs..."
+  url: "https://odjpvxijmzppvojiirtz.supabase.co",      // ex.: "https://abcdefgh.supabase.co"
+   anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9kanB2eGlqbXpwcHZvamlpcnR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MDEyNDcsImV4cCI6MjA5ODk3NzI0N30.PtVZ8u4XhINtON84gucsfw274BLjmVvKL03PKPj6hcE"
 };
