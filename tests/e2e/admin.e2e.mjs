@@ -125,8 +125,15 @@ await page.waitForSelector("#admStore", { state: "visible", timeout: 5000 });
 await page.waitForFunction(() => document.getElementById("deviceList").textContent.includes("@maria"), null, { timeout: 5000 });
 check("aparelho da maria aparece na lista após o login dela", true);
 
-page.once("dialog", d => d.accept()); // confirm() nativo de "revogar"
+// achado A-11: modal próprio no lugar de confirm() nativo — cancelar não revoga
 await page.click('#deviceList button[data-uid]');
+await page.waitForSelector("#confirmModal.show", { timeout: 3000 });
+await page.click("#confirmNo");
+check("cancelar no modal de confirmação não revoga o aparelho", await page.isHidden("#confirmModal.show") && (await page.locator("#deviceList button[data-uid]").count()) === 1);
+
+await page.click('#deviceList button[data-uid]');
+await page.waitForSelector("#confirmModal.show", { timeout: 3000 });
+await page.click("#confirmYes");
 await page.waitForFunction(() => document.getElementById("uMsg").textContent.includes("revogado"), null, { timeout: 5000 });
 check("admin revoga o aparelho pelo console", true);
 

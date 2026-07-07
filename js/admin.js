@@ -137,10 +137,11 @@ async function loadDevices(){
   });
 }
 
-async function revokeDevice(authUid){
-  if(!confirm("Revogar este aparelho? Ele para de sincronizar com a empresa a partir de agora.")) return;
-  const { error } = await sb.from("device_links").delete().eq("auth_uid", authUid);
-  if(!error){ $("uMsg").textContent="✓ Aparelho revogado."; await loadDevices(); }
+function revokeDevice(authUid){
+  askConfirm("Revogar aparelho", "Ele para de sincronizar com a empresa a partir de agora — os dados que já baixou continuam nele.", async ()=>{
+    const { error } = await sb.from("device_links").delete().eq("auth_uid", authUid);
+    if(!error){ $("uMsg").textContent="✓ Aparelho revogado."; await loadDevices(); }
+  });
 }
 
 async function loadUsers(){
@@ -175,28 +176,50 @@ async function saveUsers(msg){
   return true;
 }
 
-async function userAction(action,i){
+function userAction(action,i){
   const u=curUsers[i]; if(!u) return;
   if(action==="perm"){
     u.canAddStock=!u.canAddStock;
-    await saveUsers(`✓ Permissão de ${u.username} atualizada.`);
+    saveUsers(`✓ Permissão de ${u.username} atualizada.`);
   }
-  if(action==="pass"){
-    const pw=prompt(`Nova senha para @${u.username} (mín. 4 caracteres):`);
-    if(pw==null) return;
-    if(pw.length<4){ alert("Senha muito curta."); return; }
-    const h=await hashPassword(pw);
-    if(h){ u.passHash=h; delete u.password; } else { u.password=pw; delete u.passHash; }
-    await saveUsers(`✓ Senha de ${u.username} trocada.`);
-  }
+  if(action==="pass") askNewPassword(u.username, i);
   if(action==="del"){
     if(u.role==="gerente" && curUsers.filter(x=>x.role==="gerente").length<=1){
-      alert("Não dá para remover o último gerente da empresa."); return;
+      $("uMsg").textContent=""; $("nu_err").textContent="Não dá para remover o último gerente da empresa.";
+      return;
     }
-    if(!confirm(`Remover o acesso de @${u.username}?`)) return;
-    curUsers.splice(i,1);
-    await saveUsers(`✓ Acesso de ${u.username} removido.`);
+    askConfirm("Remover acesso", `Remover o acesso de @${u.username}?`, async ()=>{
+      curUsers.splice(i,1);
+      await saveUsers(`✓ Acesso de ${u.username} removido.`);
+    });
   }
+}
+
+/* ---------- modais (confirmação e nova senha) — substituem confirm()/prompt() nativos ---------- */
+let confirmCb=null;
+function askConfirm(title,msg,onYes){
+  $("confirmTitle").textContent=title; $("confirmMsg").textContent=msg;
+  confirmCb=onYes; $("confirmModal").classList.add("show");
+}
+function closeConfirm(){ $("confirmModal").classList.remove("show"); confirmCb=null; }
+
+let passTargetIndex=null;
+function askNewPassword(username, idx){
+  passTargetIndex=idx;
+  $("passWho").textContent="para @"+username;
+  $("passInput").value=""; $("passErr").textContent="";
+  $("passModal").classList.add("show");
+  setTimeout(()=>{ try{ $("passInput").focus(); }catch(e){} },80);
+}
+function closePassModal(){ $("passModal").classList.remove("show"); passTargetIndex=null; }
+async function saveNewPassword(){
+  const pw=$("passInput").value;
+  if(pw.length<4){ $("passErr").textContent="Senha muito curta (mín. 4 caracteres)."; return; }
+  const u=curUsers[passTargetIndex]; if(!u){ closePassModal(); return; }
+  const h=await hashPassword(pw);
+  if(h){ u.passHash=h; delete u.password; } else { u.password=pw; delete u.passHash; }
+  closePassModal();
+  await saveUsers(`✓ Senha de ${u.username} trocada.`);
 }
 
 async function addUser(){
@@ -230,4 +253,9 @@ $("backBtn").addEventListener("click", ()=>{ $("admStore").style.display="none";
 $("stSaveBtn").addEventListener("click", saveStoreName);
 $("ns_addBtn").addEventListener("click", createStore);
 $("nu_addBtn").addEventListener("click", addUser);
+$("confirmYes").addEventListener("click", ()=>{ const cb=confirmCb; closeConfirm(); if(cb) cb(); });
+$("confirmNo").addEventListener("click", closeConfirm);
+$("passCancel").addEventListener("click", closePassModal);
+$("passSave").addEventListener("click", saveNewPassword);
+$("passInput").addEventListener("keydown", e=>{ if(e.key==="Enter") saveNewPassword(); });
 init();
