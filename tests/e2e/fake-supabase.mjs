@@ -25,13 +25,16 @@
      empresa) retorna erro, como a constraint única do banco real.
      Simplificação: a "RLS" de escrita aqui não distingue admin de
      aparelho comum para operators/device_links (no app real só o
-     admin.js escreve nelas; nenhum teste tenta o caminho contrário). */
+     admin.js escreve nelas; nenhum teste tenta o caminho contrário).
+   - cash_events (achado A-06): abertura/sangria/reforço/fechamento do
+     caixa como eventos append-only, upsert idempotente por id — mesmo
+     tratamento que sales já tinha antes das RPCs de estoque. */
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-let DB = { stores:[], products:[], sales:[], kv:[], admins:[], device_links:[], operators:[], n:1 };
+let DB = { stores:[], products:[], sales:[], kv:[], admins:[], device_links:[], operators:[], cash_events:[], n:1 };
 
 function keyOf(t,r){
   if(t==="stores") return r.id;
@@ -39,7 +42,7 @@ function keyOf(t,r){
   if(t==="device_links") return r.auth_uid;
   if(t==="operators") return r.username;
   if(t==="products") return r.store_id+"|"+r.code;
-  if(t==="sales") return r.store_id+"|"+r.id;
+  if(t==="sales" || t==="cash_events") return r.store_id+"|"+r.id;
   return r.store_id+"|"+r.key;
 }
 

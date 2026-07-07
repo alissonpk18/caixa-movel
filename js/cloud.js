@@ -21,15 +21,18 @@
    esta camada empurra mudanças (push, com debounce) e puxa o estado da
    nuvem (pull) ao abrir, ao voltar ao primeiro plano e a cada minuto.
 
-   Conflitos — kv (usuários/caixa/config) e metadados de produto (nome/
-   preço/custo/validade) seguem "última escrita vence": simples, e uma
-   segunda gerência mexendo ao mesmo tempo é raro. Já a QUANTIDADE em
-   estoque nunca é sincronizada por valor absoluto — duas vendas ou
-   reposições simultâneas em aparelhos diferentes fariam uma delas
-   "vencer" e a outra baixa sumir. Em vez disso, toda mudança de
-   quantidade vira uma fila local de operações (venda, ajuste relativo,
-   correção absoluta) aplicada no banco por RPCs atômicas — o banco quem
-   soma/subtrai, nunca o cliente que "define" o número final. */
+   Conflitos — kv de configuração e metadados de produto (nome/preço/
+   custo/validade) seguem "última escrita vence": simples, e uma segunda
+   gerência mexendo ao mesmo tempo é raro. Três coisas NÃO podem ser
+   assim, porque dois aparelhos mexendo nelas ao mesmo tempo é comum e
+   uma "vencer" apaga silenciosamente o que o outro fez:
+   - QUANTIDADE em estoque: nunca sincronizada por valor absoluto — toda
+     mudança vira uma fila de operações (venda, ajuste relativo,
+     correção absoluta) aplicada por RPCs atômicas no banco.
+   - VENDAS: sempre foram append-only (upsert idempotente por id).
+   - CAIXA (abertura/sangria/reforço/fechamento): também append-only —
+     cada ação é um evento próprio, e o estado é reconstruído
+     reproduzindo os eventos em ordem (nunca mais um documento único). */
 /* versão pinada (não "@2" flutuante) + verificação de integridade (SRI):
    um CDN comprometido não pode trocar silenciosamente o código que fala
    com a nuvem de todas as empresas. Ao atualizar a versão, recalcule o
@@ -43,7 +46,7 @@ let cloudStoreId = null;    // id da empresa vinculada a este aparelho (null = a
 let cloudApplying = false;  // aplicando um pull: não re-marcar como sujo
 /* "users" não existe mais aqui — operadores são geridos pelo console
    admin direto na tabela `operators` (achado A-03); o aparelho só lê. */
-const cloudDirty = { products:false, sales:false, stock:false, cash:false, settings:false };
+const cloudDirty = { products:false, sales:false, stock:false, cashEvents:false, settings:false };
 let cloudPushT = null;
 
 function cloudEnabled(){
@@ -128,12 +131,11 @@ function cloudMarkDirty(kind){
 
 async function cloudPush(){
   if(!cloudOn() || !navigator.onLine) return;
-  if(cloudDirty.products){ await cloudPushProducts(); cloudDirty.products=false; }
-  if(cloudDirty.sales){    await cloudPushSales();    cloudDirty.sales=false; }
-  if(cloudDirty.stock){    await cloudPushStock();    cloudDirty.stock=false; }
-  for(const k of ["cash","settings"]){
-    if(cloudDirty[k]){ await cloudPushKV(k); cloudDirty[k]=false; }
-  }
+  if(cloudDirty.products){   await cloudPushProducts();   cloudDirty.products=false; }
+  if(cloudDirty.sales){      await cloudPushSales();       cloudDirty.sales=false; }
+  if(cloudDirty.stock){      await cloudPushStock();       cloudDirty.stock=false; }
+  if(cloudDirty.cashEvents){ await cloudPushCashEvents();  cloudDirty.cashEvents=false; }
+  if(cloudDirty.settings){   await cloudPushKV("settings"); cloudDirty.settings=false; }
 }
 
 /* metadados (nome/preço/custo/validade) + inserção de produto novo.
@@ -230,9 +232,50 @@ async function cloudEnqueueStockSet(code, qty){
 }
 
 async function cloudPushKV(key){
-  const value = key==="cash" ? DB.cash : settings;
-  const { error } = await sbClient.from("kv").upsert({ store_id:cloudStoreId, key, value });
+  const { error } = await sbClient.from("kv").upsert({ store_id:cloudStoreId, key, value:settings });
   if(error) throw error;
+}
+
+/* fila de eventos de caixa (achado A-06): abertura, sangria, reforço e
+   fechamento entram como eventos independentes — nunca mais um upsert
+   do documento inteiro, que apagava o movimento feito por outro
+   aparelho enquanto este estava sem sincronizar. */
+async function cloudEnqueueCashEvent(type, data){
+  if(!cloudEnabled()) return;
+  try{
+    const list = (await sget("pdv:cloudPendingCashEvents")) || [];
+    list.push({ id:uid(), at:new Date().toISOString(), type, data });
+    await sset("pdv:cloudPendingCashEvents", list);
+  }catch(e){}
+  cloudMarkDirty("cashEvents");
+}
+async function cloudPushCashEvents(){
+  const pending = (await sget("pdv:cloudPendingCashEvents")) || [];
+  if(!pending.length) return;
+  const rows = pending.map(e=>({ store_id:cloudStoreId, id:e.id, at:e.at, type:e.type, data:e.data }));
+  const { error } = await sbClient.from("cash_events").upsert(rows);
+  if(error) throw error;
+  await sset("pdv:cloudPendingCashEvents", []);
+}
+
+/* reconstrói {open, history} reproduzindo os eventos em ordem — mesmo
+   formato que js/cashbox.js sempre usou, só a origem dos dados muda */
+function reconstructCash(events){
+  let open = null;
+  const history = [];
+  events.forEach(e=>{
+    const d = e.data || {};
+    if(e.type==="open"){
+      open = { openedAt:e.at, operator:d.operator||"—", openingFloat:Number(d.openingFloat)||0, movements:[] };
+    }else if((e.type==="sangria" || e.type==="reforco") && open){
+      open.movements.push({ type:e.type, amount:Number(d.amount)||0, ts:e.at });
+    }else if(e.type==="close" && open){
+      history.unshift({ ...open, closedAt:e.at, expected:Number(d.expected)||0, counted:Number(d.counted)||0,
+        diff:Number(d.diff)||0, salesTotal:Number(d.salesTotal)||0, salesCount:Number(d.salesCount)||0 });
+      open = null;
+    }
+  });
+  return { open, history: history.slice(0,60) };
 }
 
 /* o admin pode revogar o vínculo deste aparelho a qualquer momento
@@ -274,13 +317,14 @@ async function cloudPull(){
     ? base.gt("at", mark).order("at",{ascending:true})   // backlog novo: mais antigo primeiro
     : base.order("at",{ascending:false});                 // primeira vez: as 5000 mais recentes
 
-  const [pr, sl, kv, ops] = await Promise.all([
+  const [pr, sl, kv, ops, ce] = await Promise.all([
     sbClient.from("products").select("code,name,price,cost,qty,exp").eq("store_id",cloudStoreId),
     salesQuery,
     sbClient.from("kv").select("key,value").eq("store_id",cloudStoreId),
-    sbClient.from("operators").select("username,name,role,can_add_stock,pass_hash").eq("store_id",cloudStoreId)
+    sbClient.from("operators").select("username,name,role,can_add_stock,pass_hash").eq("store_id",cloudStoreId),
+    sbClient.from("cash_events").select("type,at,data").eq("store_id",cloudStoreId)
   ]);
-  const err = pr.error || sl.error || kv.error || ops.error;
+  const err = pr.error || sl.error || kv.error || ops.error || ce.error;
   if(err) throw err;
 
   const kvMap = {};
@@ -307,7 +351,16 @@ async function cloudPull(){
     DB.users = sanitizeUsers((ops.data||[]).map(o=>({
       username:o.username, name:o.name, role:o.role, canAddStock:o.can_add_stock, passHash:o.pass_hash
     })));
-    if(kvMap.cash)     DB.cash  = sanitizeCash(kvMap.cash) || DB.cash;
+
+    // caixa (achado A-06): reconstrói reproduzindo os eventos em ordem.
+    // kv.cash só é lido como ponte de migração — enquanto nenhum evento
+    // ainda existe (loja que abriu caixa antes desta mudança), evita
+    // "esquecer" uma sessão aberta; assim que o próximo evento acontecer
+    // (sangria, reforço, fechamento), os eventos passam a mandar.
+    const cashEvents = (ce.data||[]).slice().sort((a,b)=> a.at.localeCompare(b.at));
+    if(cashEvents.length) DB.cash = reconstructCash(cashEvents);
+    else if(kvMap.cash)   DB.cash = sanitizeCash(kvMap.cash) || DB.cash;
+
     if(kvMap.settings) applySettings(kvMap.settings);
     ensureManagerAccess();
     await saveProducts(); await saveSales(); await saveUsers(); await saveCash(); await saveSettings();

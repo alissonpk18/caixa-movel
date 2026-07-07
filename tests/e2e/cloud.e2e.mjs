@@ -3,9 +3,10 @@
    nenhuma tela de "conectar à nuvem" — o aparelho usa só o login de
    sempre (usuário/senha); se o usuário não existe localmente, o app
    pergunta à nuvem (RPC login_operator) e se vincula automaticamente
-   à empresa correta. Valida também o achado A-02 do relatório de
-   arquitetura: vendas concorrentes do mesmo produto em aparelhos
-   diferentes não perdem baixa de estoque (RPC apply_sale, atômica). */
+   à empresa correta. Valida também: A-02 — vendas concorrentes do
+   mesmo produto em aparelhos diferentes não perdem baixa de estoque
+   (RPC apply_sale, atômica); e A-06 — dois aparelhos mexendo no mesmo
+   caixa aberto ao mesmo tempo não perdem movimento (eventos append-only). */
 import { createHash } from "node:crypto";
 import { chromium } from "playwright";
 import { wireFakeCloud, seedFakeStore, peekFakeDb } from "./fake-supabase.mjs";
@@ -119,6 +120,29 @@ while (Date.now() - t1 < 8000 && peekFakeDb().sales.length < 3) await new Promis
 check("as duas vendas concorrentes chegaram na nuvem", peekFakeDb().sales.length === 3);
 const qtyAfterRace = peekFakeDb().products.find(p => p.code === "7891000100103").qty;
 check("nenhuma baixa de estoque se perde na corrida (37−2−5=30)", qtyAfterRace === 30, "qty=" + qtyAfterRace);
+
+/* ---- achado A-06 do relatório de arquitetura: dois aparelhos mexendo
+   no MESMO caixa aberto, sem sincronizar entre uma ação e outra — antes
+   o caixa inteiro era um documento só ("última escrita vence") e um
+   aparelho apagava o movimento do outro; agora cada ação é um evento
+   próprio (append-only, como as vendas). ---- */
+await pageB.evaluate(() => { document.getElementById("cash_float").value = "100"; openCash(); });
+await pageB.evaluate(() => cloudSync());
+await pageA.evaluate(() => cloudSync());
+check("aparelho A recebe a abertura de caixa feita pelo aparelho B", await pageA.evaluate(() => !!(DB.cash.open && DB.cash.open.openingFloat === 100)));
+
+// sem sincronizar entre uma ação e outra: cada aparelho só enxerga o
+// próprio movimento até este ponto
+await pageA.evaluate(() => { document.getElementById("cash_mov").value = "30"; cashMovement("reforco"); });
+await pageB.evaluate(() => { document.getElementById("cash_mov").value = "10"; cashMovement("sangria"); });
+await pageA.evaluate(() => cloudSync());
+await pageB.evaluate(() => cloudSync());
+await pageA.evaluate(() => cloudSync()); // 2ª volta: pega o que o B acabou de mandar
+
+const cashEventsCount = peekFakeDb().cash_events.length;
+check("os 3 eventos de caixa chegaram na nuvem (abertura + 2 movimentos)", cashEventsCount === 3, "eventos=" + cashEventsCount);
+const movementsOnA = await pageA.evaluate(() => DB.cash.open.movements.length);
+check("nenhum movimento de caixa se perde na corrida (reforço do A + sangria do B)", movementsOnA === 2, "movimentos=" + movementsOnA);
 
 /* ---- credencial errada: sem crash, sem vínculo indevido ---- */
 await pageB.click("#logoutOp");

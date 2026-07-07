@@ -77,6 +77,8 @@ function openCash(){
   DB.cash.open={ openedAt:new Date().toISOString(), operator:state.user?state.user.name:"—", openingFloat:round2(v), movements:[] };
   saveCash();
   renderCashModal();
+  // evento append-only na nuvem — nunca mais o documento inteiro (A-06)
+  if(typeof cloudEnqueueCashEvent==="function") cloudEnqueueCashEvent("open", { operator:DB.cash.open.operator, openingFloat:DB.cash.open.openingFloat });
   toast("✓ Caixa aberto — fundo "+money(v),"ok");
 }
 function cashMovement(type){
@@ -90,6 +92,7 @@ function cashMovement(type){
   open.movements.push({ type, amount:round2(v), ts:new Date().toISOString() });
   saveCash();
   renderCashModal();
+  if(typeof cloudEnqueueCashEvent==="function") cloudEnqueueCashEvent(type, { amount:round2(v) });
   toast(type==="sangria"?("Sangria de "+money(v)+" registrada"):("✓ Reforço de "+money(v)),"ok");
 }
 function startCloseCash(){
@@ -116,6 +119,7 @@ function confirmCloseCash(){
   DB.cash.open=null;
   saveCash();
   renderCashModal();
+  if(typeof cloudEnqueueCashEvent==="function") cloudEnqueueCashEvent("close", { counted:round2(counted), expected, diff, salesTotal:sum.total, salesCount:sum.count });
   closeCashModal();
   const msg = diff===0 ? "caixa bateu certinho" : (diff>0 ? "sobra de "+money(diff) : "falta de "+money(-diff));
   toast("✓ Caixa fechado — "+msg, diff<0?"bad":"ok");

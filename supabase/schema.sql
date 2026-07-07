@@ -84,8 +84,9 @@ create index if not exists sales_store_at on public.sales (store_id, at desc);
 
 -- ---------------------------------------------------------------------
 -- kv: documentos da loja que o app sincroniza inteiros
--- (chaves usadas hoje: 'cash', 'settings' — 'users' virou a tabela
--- `operators` abaixo, achado A-03 do relatório de arquitetura).
+-- (chave usada hoje: 'settings' — 'users' virou `operators', A-03; e
+-- 'cash' virou `cash_events' logo abaixo, A-06 — kv.cash só é lido como
+-- ponte de migração para quem já tinha caixa aberto antes dessa mudança).
 -- ---------------------------------------------------------------------
 create table if not exists public.kv (
   store_id   uuid not null references public.stores(id) on delete cascade,
@@ -94,6 +95,26 @@ create table if not exists public.kv (
   updated_at timestamptz not null default now(),
   primary key (store_id, key)
 );
+
+-- ---------------------------------------------------------------------
+-- Eventos do caixa (achado A-06): abertura, sangria, reforço e
+-- fechamento — append-only, como as vendas. Antes, o caixa inteiro
+-- (sessão aberta + movimentos) era UM documento em kv, sincronizado por
+-- "última escrita vence"; dois aparelhos mexendo na mesma gaveta ao
+-- mesmo tempo faziam um apagar o movimento do outro. Cada ação vira uma
+-- linha própria; o estado (DB.cash = {open, history}) é reconstruído no
+-- aparelho reproduzindo os eventos em ordem — mesma lógica de sempre em
+-- js/pdv-core.js, só a origem dos dados muda.
+-- ---------------------------------------------------------------------
+create table if not exists public.cash_events (
+  store_id uuid not null references public.stores(id) on delete cascade,
+  id       text not null,
+  at       timestamptz not null,
+  type     text not null,  -- 'open' | 'sangria' | 'reforco' | 'close'
+  data     jsonb not null,
+  primary key (store_id, id)
+);
+create index if not exists cash_events_store_at on public.cash_events (store_id, at);
 
 -- ---------------------------------------------------------------------
 -- Operadores (gerente/caixa) de cada empresa. Antes viviam num array
@@ -163,6 +184,7 @@ alter table public.kv           enable row level security;
 alter table public.admins       enable row level security;
 alter table public.device_links enable row level security;
 alter table public.operators    enable row level security;
+alter table public.cash_events  enable row level security;
 
 -- cada aparelho só vê a própria linha de vínculo (útil para o app saber
 -- se já está vinculado/segue vinculado ao abrir); o admin vê todas, para
@@ -205,6 +227,12 @@ create policy "own sales" on public.sales
 
 drop policy if exists "own kv"       on public.kv;
 create policy "own kv" on public.kv
+  for all to authenticated
+  using (store_id = public.my_store_id() or public.is_admin())
+  with check (store_id = public.my_store_id() or public.is_admin());
+
+drop policy if exists "own cash events" on public.cash_events;
+create policy "own cash events" on public.cash_events
   for all to authenticated
   using (store_id = public.my_store_id() or public.is_admin())
   with check (store_id = public.my_store_id() or public.is_admin());
