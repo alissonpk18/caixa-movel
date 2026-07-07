@@ -72,13 +72,30 @@ primeira visita, o app abre **offline**.
 | Arquivo                    | Função                                         |
 |----------------------------|------------------------------------------------|
 | `index.html`               | Redireciona a raiz para o app (URL limpa).      |
-| `pdv-mobile.html`          | App completo (UI + lógica de tela).             |
+| `pdv-mobile.html`          | Casca do app: só o markup das telas.            |
+| `css/pdv.css`              | Todo o estilo do app.                           |
+| `js/helpers.js`            | Utilitários e versão do app.                    |
+| `js/store.js`              | Camada de dados (storage, DB, sessão, boot).    |
+| `js/feedback.js`           | Som, toast e faixa de status.                   |
+| `js/auth.js`               | Navegação entre telas, login e senhas.          |
+| `js/scanner.js`            | Leitor de código de barras (câmera/físico).     |
+| `js/sale.js`               | Carrinho, pagamento, Pix e comprovante.         |
+| `js/backup.js`             | Exportação/importação de dados em JSON.         |
+| `js/manager.js`            | Gerência: estoque, validade, vendas, relatórios.|
+| `js/users.js`              | Gerência: usuários e permissões.                |
+| `js/cashbox.js`            | Caixa: abertura, sangria, fechamento, reposição.|
+| `js/modals.js`             | Confirmação e teclado manual.                   |
+| `js/main.js`               | Amarração de eventos, service worker e boot.    |
 | `pdv-core.js`              | Núcleo de regras de negócio (puro, testável).   |
 | `qrcode.min.js`            | Gerador de QR Code local (qrcode-generator, MIT).|
 | `manifest.webmanifest`     | Metadados do PWA.                               |
 | `sw.js`                    | Service worker (cache/offline).                |
 | `icon-*.png`               | Ícones do app.                                  |
 | `tests/`                   | Testes unitários (`npm test`) e E2E (Playwright).|
+
+Os módulos em `js/` são scripts clássicos com escopo global compartilhado,
+carregados em ordem de dependência no fim do `pdv-mobile.html` — a
+arquitetura continua **sem build e sem bundler**.
 
 ## Testes
 
