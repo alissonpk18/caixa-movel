@@ -23,7 +23,12 @@
    Conflitos: última escrita vence; vendas são append-only (upsert
    idempotente), o caso mais comum de concorrência entre caixas.
    ================================================================ */
-const CLOUD_LIB_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js";
+/* versão pinada (não "@2" flutuante) + verificação de integridade (SRI):
+   um CDN comprometido não pode trocar silenciosamente o código que fala
+   com a nuvem de todas as empresas. Ao atualizar a versão, recalcule o
+   hash: curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A */
+const CLOUD_LIB_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js";
+const CLOUD_LIB_SRI = "sha384-GFr3yTh5lJznCbZfpTtXnwboFsxqtTQoeTZCRHhE0579KrRmlCzen5AA8ohaB5ug";
 const CLOUD_PULL_MS = 60000;
 
 let sbClient = null;        // cliente Supabase (null = lib não carregada/sem config)
@@ -43,6 +48,7 @@ function cloudLoadLib(){
     if(window.supabase && window.supabase.createClient) return resolve();
     const s=document.createElement("script");
     s.src=CLOUD_LIB_URL; s.async=true;
+    s.integrity=CLOUD_LIB_SRI; s.crossOrigin="anonymous"; s.referrerPolicy="no-referrer";
     s.onload=()=>resolve();
     s.onerror=()=>reject(new Error("biblioteca da nuvem não carregou"));
     document.head.appendChild(s);
@@ -151,9 +157,28 @@ async function cloudPushKV(key){
   if(error) throw error;
 }
 
+/* o admin pode revogar o vínculo deste aparelho a qualquer momento
+   (tabela device_links). Sem essa checagem, a próxima sincronização
+   receberia tudo vazio (o RLS simplesmente para de liberar as linhas da
+   empresa) e o app apagaria os dados locais como se a empresa não
+   tivesse nada — em vez disso, detectamos a revogação e saímos para o
+   login com aviso, preservando o storage local intacto. */
+async function cloudStillLinked(){
+  const { data, error } = await sbClient.from("device_links").select("store_id").maybeSingle();
+  if(error) return true; // falha de rede/nuvem: não pune, tenta de novo no próximo ciclo
+  return !!(data && data.store_id === cloudStoreId);
+}
+function cloudHandleRevoked(){
+  cloudStoreId = null;
+  try{
+    if(state.user){ logout(); toast("Este aparelho foi desconectado da loja pela gerência.","bad"); }
+  }catch(e){}
+}
+
 /* ---------- pull (nuvem → local) ---------- */
 async function cloudPull(){
   if(!cloudOn() || !navigator.onLine) return;
+  if(!(await cloudStillLinked())){ cloudHandleRevoked(); return; }
   const [pr, sl, kv] = await Promise.all([
     sbClient.from("products").select("code,name,price,cost,qty,exp").eq("store_id",cloudStoreId),
     sbClient.from("sales").select("data").eq("store_id",cloudStoreId).order("at",{ascending:false}).limit(5000),
@@ -190,6 +215,7 @@ function cloudStartLoops(){
 }
 
 async function cloudSync(){
+  if(cloudOn() && navigator.onLine && !(await cloudStillLinked())){ cloudHandleRevoked(); return; }
   try{ await cloudPush(); }catch(e){}
   try{ await cloudPull(); }catch(e){}
 }

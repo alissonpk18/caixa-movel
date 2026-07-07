@@ -15,6 +15,10 @@
      supabase/schema.sql — procura o usuário em TODAS as empresas
      (kv.key='users'), confere o hash e, se bater, vincula o aparelho
      (device_links) e devolve o store_id. */
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 let DB = { stores:[], products:[], sales:[], kv:[], admins:[], device_links:[], n:1 };
 
@@ -36,7 +40,7 @@ function handleFakeApi({ fn, uid, args }){
         && x.passHash && x.passHash===args.p_hash);
       if(u){
         DB.device_links = DB.device_links.filter(x=>x.auth_uid!==uid);
-        DB.device_links.push({ auth_uid:uid, store_id:row.store_id, linked_at:new Date().toISOString() });
+        DB.device_links.push({ auth_uid:uid, store_id:row.store_id, username:args.p_username, linked_at:new Date().toISOString() });
         return { data:[{ store_id:row.store_id, name:u.name||"", role:u.role||"operador", can_add_stock:!!u.canAddStock }], error:null };
       }
     }
@@ -51,7 +55,7 @@ function handleFakeApi({ fn, uid, args }){
     const visible = r =>
       t==="admins" ? r.user_id===uid :
       t==="stores" ? (r.owner===uid || admin) :
-      t==="device_links" ? r.auth_uid===uid :
+      t==="device_links" ? (r.auth_uid===uid || admin) :
       (r.store_id===my || admin);
     const list = DB[t] || (DB[t]=[]);
     if(op==="insert" || op==="upsert"){
@@ -123,10 +127,31 @@ window.supabase = { createClient: function(){
 
 export const FAKE_CONFIG = '"use strict"; const CLOUD_CONFIG = { url: "https://fake.supabase.co", anonKey: "fake-key" };';
 
+/* js/cloud.js e js/admin.js carregam a lib da nuvem com verificação de
+   integridade (SRI) contra o hash real do supabase-js — correto em
+   produção, mas o navegador aplica essa checagem também sobre o corpo
+   que o Playwright serve aqui, e o FAKE_LIB claramente não bate com o
+   hash do pacote real. Em vez de remover a proteção do código de
+   produção, os testes servem cloud.js/admin.js com a constante de SRI
+   recalculada para o hash do PRÓPRIO conteúdo falso — a integridade
+   continua sendo verificada de ponta a ponta, só que contra o corpo
+   certo para este ambiente de teste. */
+const FAKE_LIB_SRI = "sha384-" + createHash("sha384").update(FAKE_LIB, "utf8").digest("base64");
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = join(HERE, "..", "..");
+function patchedLibLoader(relPath, sriConstName){
+  const src = readFileSync(join(REPO_ROOT, relPath), "utf8");
+  const re = new RegExp(`(const ${sriConstName}\\s*=\\s*)"sha384-[^"]+"`);
+  if(!re.test(src)) throw new Error(`${sriConstName} não encontrado em ${relPath} — arquivo mudou?`);
+  return src.replace(re, `$1"${FAKE_LIB_SRI}"`);
+}
+
 /* instala as rotas/bindings que ligam o modo nuvem falso num contexto Playwright */
 export async function wireFakeCloud(ctx){
   await ctx.route("**/js/config.js", route => route.fulfill({ contentType:"application/javascript", body: FAKE_CONFIG }));
   await ctx.route("**cdn.jsdelivr.net/npm/@supabase/**", route => route.fulfill({ contentType:"application/javascript", body: FAKE_LIB }));
+  await ctx.route("**/js/cloud.js", route => route.fulfill({ contentType:"application/javascript", body: patchedLibLoader("js/cloud.js", "CLOUD_LIB_SRI") }));
+  await ctx.route("**/js/admin.js", route => route.fulfill({ contentType:"application/javascript", body: patchedLibLoader("js/admin.js", "ADMIN_LIB_SRI") }));
   await ctx.exposeBinding("__fakeApi", (_source, payload) => handleFakeApi(payload));
 }
 

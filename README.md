@@ -98,6 +98,13 @@ Para quem opera o SaaS: a página **`admin.html`** é de onde você cria as
 acesso, trocar senha, liberar reposição de estoque, remover, renomear a
 empresa). Os aparelhos recebem as mudanças na sincronização seguinte.
 
+O console também lista os **aparelhos conectados** de cada empresa e
+permite **revogar** um vínculo (celular perdido, ex-funcionário etc.) —
+o aparelho para de sincronizar já na próxima tentativa, sem apagar os
+dados que ele já tinha localmente. Trocar a senha de um usuário, por si
+só, não desconecta os aparelhos que ele já usou — revogue-os aqui se for
+o caso.
+
 O console tem seu próprio login (e-mail/senha real, só para você). Para
 criar essa conta, use o painel do Supabase — **Authentication → Users →
 Add user** (marque *Auto Confirm User*) — e depois promova-a a
@@ -161,6 +168,11 @@ npm test
 python3 -m http.server 8899 &
 npm run test:e2e   # PDV_URL e CHROMIUM_PATH são configuráveis por env
 ```
+
+Roda automaticamente em cada push/PR via GitHub Actions
+(`.github/workflows/tests.yml`) — os E2E do modo nuvem/admin usam um
+Supabase falso em memória (`tests/e2e/fake-supabase.mjs`), sem precisar
+de credenciais nem rede real.
 
 ## Limitações (por ser uma demo client-side)
 

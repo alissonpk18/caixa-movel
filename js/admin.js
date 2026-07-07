@@ -10,7 +10,9 @@
    Os usuários de uma empresa vivem no documento kv key='users' da loja;
    o PDV dos aparelhos puxa as mudanças na próxima sincronização.
    ================================================================ */
-const ADMIN_LIB_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js";
+/* mesma versão pinada + SRI de js/cloud.js — mantenha as duas em sincronia */
+const ADMIN_LIB_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js";
+const ADMIN_LIB_SRI = "sha384-GFr3yTh5lJznCbZfpTtXnwboFsxqtTQoeTZCRHhE0579KrRmlCzen5AA8ohaB5ug";
 const $ = (id)=>document.getElementById(id);
 
 let sb = null;
@@ -34,7 +36,9 @@ function loadLib(){
   return new Promise((res,rej)=>{
     if(window.supabase && window.supabase.createClient) return res();
     const s=document.createElement("script");
-    s.src=ADMIN_LIB_URL; s.onload=()=>res(); s.onerror=()=>rej(new Error("lib"));
+    s.src=ADMIN_LIB_URL;
+    s.integrity=ADMIN_LIB_SRI; s.crossOrigin="anonymous"; s.referrerPolicy="no-referrer";
+    s.onload=()=>res(); s.onerror=()=>rej(new Error("lib"));
     document.head.appendChild(s);
   });
 }
@@ -110,8 +114,33 @@ async function openStore(store){
   $("uMsg").textContent=""; $("nu_err").textContent="";
   $("nu_user").value=""; $("nu_name").value=""; $("nu_pass").value=""; $("nu_role").value="operador";
   await loadUsers();
+  await loadDevices();
   $("admStores").style.display="none";
   $("admStore").style.display="";
+}
+
+const fmtDT=(iso)=>{ try{ return new Date(iso).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}); }catch(e){ return "—"; } };
+
+async function loadDevices(){
+  const { data, error } = await sb.from("device_links")
+    .select("auth_uid,username,linked_at").eq("store_id", curStore.id);
+  const el=$("deviceList");
+  if(error){ el.innerHTML='<div class="err">Erro ao listar os aparelhos.</div>'; return; }
+  if(!data || !data.length){ el.innerHTML='<div class="sub">Nenhum aparelho vinculado ainda — o vínculo acontece sozinho no primeiro login de cada usuário.</div>'; return; }
+  el.innerHTML = data.map(d=>`
+    <div class="device" data-uid="${esc(d.auth_uid)}">
+      <div class="grow"><span class="nm">@${esc(d.username||"?")}</span> <span class="dt">vinculado em ${fmtDT(d.linked_at)}</span></div>
+      <button class="btn btn-bad btn-sm" data-uid="${esc(d.auth_uid)}">revogar</button>
+    </div>`).join("");
+  el.querySelectorAll("button[data-uid]").forEach(b=>{
+    b.addEventListener("click", ()=>revokeDevice(b.dataset.uid));
+  });
+}
+
+async function revokeDevice(authUid){
+  if(!confirm("Revogar este aparelho? Ele para de sincronizar com a empresa a partir de agora.")) return;
+  const { error } = await sb.from("device_links").delete().eq("auth_uid", authUid);
+  if(!error){ $("uMsg").textContent="✓ Aparelho revogado."; await loadDevices(); }
 }
 
 async function loadUsers(){

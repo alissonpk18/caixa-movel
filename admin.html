@@ -40,6 +40,10 @@
   .user:last-child{border-bottom:0}
   .user .nm{font-weight:800}
   .user .un{color:var(--muted);font-size:12.5px;font-family:var(--mono)}
+  .device{display:flex;gap:8px;align-items:center;padding:11px 6px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .device:last-child{border-bottom:0}
+  .device .nm{font-weight:800}
+  .device .dt{color:var(--muted);font-size:12.5px;font-family:var(--mono)}
   .tag{font-size:11px;font-weight:800;border-radius:99px;padding:3px 9px;background:#EDF0F5}
   .tag.g{background:#E4E9FF;color:var(--brand)}
   .tag.p{background:#E2F5EC;color:var(--ok)}
@@ -110,6 +114,12 @@
       </div>
       <div class="err" id="nu_err"></div>
       <button class="btn btn-primary" id="nu_addBtn">Adicionar à empresa</button>
+
+      <div class="sect">Aparelhos conectados</div>
+      <p class="sub" style="margin-bottom:10px">Cada linha é um celular/tablet já vinculado a esta empresa.
+        Revogar desconecta o aparelho na próxima sincronização — os dados que já baixou continuam nele,
+        mas ele para de mandar e receber atualizações da empresa.</p>
+      <div id="deviceList"></div>
     </div>
   </div>
 </div>

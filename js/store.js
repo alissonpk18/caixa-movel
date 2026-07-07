@@ -71,6 +71,13 @@ const saveSettings = () => { dirty("settings"); return sset("pdv:settings", sett
 const saveSession  = () => sset("pdv:session", state.user ? {username:state.user.username, role:state.user.role, name:state.user.name} : null);
 
 async function boot(){
+  /* com a nuvem configurada, o aparelho não deve nascer com o gerente/caixa
+     de demonstração: eles funcionariam localmente (dados vazios, sem
+     relação com nenhuma empresa real) e só confundiriam quem tenta entrar
+     antes do primeiro login rotear e vincular o aparelho pela nuvem. */
+  const cloud = typeof cloudEnabled==="function" && cloudEnabled();
+  if(cloud){ const hint=$("loginHint"); if(hint) hint.style.display="none"; }
+
   if(hasArtifactStorage || hasLocalStorage){
     DB.users    = sanitizeUsers(await sget("pdv:users"));
     DB.products = sanitizeProducts(await sget("pdv:products"));
@@ -78,10 +85,19 @@ async function boot(){
     DB.cash     = sanitizeCash(await sget("pdv:cash")) || { open:null, history:[] };
     applySettings(await sget("pdv:settings"));
   }
-  if(!Array.isArray(DB.users)   || !DB.users.length){ DB.users = SEED_USERS.map(u=>({...u})); await saveUsers(); }
-  if(!Array.isArray(DB.products)){ DB.products = SEED_PRODUCTS.map(p=>({...p}));    await saveProducts(); }
-  if(!Array.isArray(DB.sales)){ DB.sales = [];                                     await saveSales(); }
-  ensureManagerAccess();
+  if(!Array.isArray(DB.sales)){ DB.sales = []; await saveSales(); }
+  if(!cloud){
+    /* modo 100% local: preserva o comportamento original — semeia
+       usuários/estoque de demonstração e garante sempre um gerente */
+    if(!Array.isArray(DB.users)   || !DB.users.length){ DB.users = SEED_USERS.map(u=>({...u})); await saveUsers(); }
+    if(!Array.isArray(DB.products)){ DB.products = SEED_PRODUCTS.map(p=>({...p})); await saveProducts(); }
+    ensureManagerAccess();
+  }else{
+    /* modo nuvem: nada de dados de demonstração — o aparelho começa
+       "vazio" até um login real rotear e vincular a uma empresa */
+    if(!Array.isArray(DB.users)) DB.users = [];
+    if(!Array.isArray(DB.products)) DB.products = [];
+  }
 
   if(!storageOK) markStorageFailure();
   wire();

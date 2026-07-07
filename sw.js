@@ -2,11 +2,12 @@
    Estratégia: cache-first com atualização em segundo plano
    (stale-while-revalidate). Permite abrir e operar o app offline
    depois da primeira visita, sem servir HTML velho para sempre. */
-const CACHE = "pdv-cache-v17";
+const CACHE = "pdv-cache-v18";
 const ASSETS = [
   "./",
   "./index.html",
   "./pdv-mobile.html",
+  "./admin.html",
   "./css/pdv.css",
   "./js/config.js",
   "./js/cloud.js",
@@ -22,13 +23,15 @@ const ASSETS = [
   "./js/cashbox.js",
   "./js/modals.js",
   "./js/main.js",
+  "./js/admin.js",
   "./pdv-core.js",
   "./qrcode.min.js",
   "./manifest.webmanifest",
   "./icon-192.png",
   "./icon-512.png",
   "./icon-maskable-512.png",
-  "https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"
+  "https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js",
+  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"
 ];
 
 self.addEventListener("install", e => {

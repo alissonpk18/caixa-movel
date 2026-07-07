@@ -98,13 +98,21 @@ create table if not exists public.kv (
 -- Vínculo aparelho↔empresa. Uma linha por sessão anônima (= aparelho);
 -- só é escrita pela função login_operator() abaixo (security definer),
 -- nunca diretamente pelo cliente — por isso não há política de escrita
--- para o papel authenticated, só de leitura da própria linha.
+-- para o papel authenticated, só de leitura (da própria linha, ou de
+-- todas para o admin) e de exclusão (só o admin, para revogar acesso).
+--
+-- `username` guarda qual login vinculou o aparelho, só para o admin
+-- identificar "de quem" é o vínculo na hora de revogar — não é usado
+-- para autenticação (quem autentica é login_operator, via hash).
 -- ---------------------------------------------------------------------
 create table if not exists public.device_links (
   auth_uid  uuid primary key references auth.users(id) on delete cascade,
   store_id  uuid not null references public.stores(id) on delete cascade,
+  username  text not null default '',
   linked_at timestamptz not null default now()
 );
+-- migração segura para instalações que criaram a tabela antes deste campo
+alter table public.device_links add column if not exists username text not null default '';
 
 -- ---------------------------------------------------------------------
 -- Row Level Security — o coração da multi-tenancy.
@@ -131,11 +139,18 @@ alter table public.admins       enable row level security;
 alter table public.device_links enable row level security;
 
 -- cada aparelho só vê a própria linha de vínculo (útil para o app saber
--- se já está vinculado ao abrir); a escrita é só via login_operator()
+-- se já está vinculado/segue vinculado ao abrir); o admin vê todas, para
+-- listar os aparelhos de uma empresa no console. A escrita (criar/trocar
+-- o vínculo) é só via login_operator(); a exclusão (revogar) é só do admin.
 drop policy if exists "own device link" on public.device_links;
 create policy "own device link" on public.device_links
   for select to authenticated
-  using (auth_uid = auth.uid());
+  using (auth_uid = auth.uid() or public.is_admin());
+
+drop policy if exists "admin revokes device link" on public.device_links;
+create policy "admin revokes device link" on public.device_links
+  for delete to authenticated
+  using (public.is_admin());
 
 -- cada conta só vê a própria linha de admin (o console usa isto para
 -- saber se a conta logada é administradora); ninguém se promove via API
@@ -216,8 +231,9 @@ begin
       if lower(elem->>'username') = lower(p_username)
          and coalesce(elem->>'passHash','') <> ''
          and elem->>'passHash' = p_hash then
-        insert into public.device_links (auth_uid, store_id) values (auth.uid(), rec.sid)
-          on conflict (auth_uid) do update set store_id = excluded.store_id, linked_at = now();
+        insert into public.device_links (auth_uid, store_id, username) values (auth.uid(), rec.sid, p_username)
+          on conflict (auth_uid) do update
+            set store_id = excluded.store_id, username = excluded.username, linked_at = now();
         return query select rec.sid, coalesce(elem->>'name',''), coalesce(elem->>'role','operador'),
           coalesce((elem->>'canAddStock')::boolean, false);
         return;
