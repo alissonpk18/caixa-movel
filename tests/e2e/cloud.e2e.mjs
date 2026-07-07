@@ -25,9 +25,15 @@ const PRODUCTS = [{ code:"7891000100103", name:"Leite Integral 1L", price:5.49, 
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 
-/* ---- 0. sem configuração: modo local intocado, lib da nuvem nem carrega ---- */
+/* ---- 0. sem configuração: modo local intocado, lib da nuvem nem carrega.
+   Simula js/config.js vazio (independente do que estiver de fato commitado
+   em produção) para testar o modo local isoladamente. ---- */
 {
   const ctx = await browser.newContext();
+  await ctx.route("**/js/config.js", route => route.fulfill({
+    contentType: "application/javascript",
+    body: '"use strict"; const CLOUD_CONFIG = { url: "", anonKey: "" };'
+  }));
   const page = await ctx.newPage();
   const cdnCalls = [];
   page.on("request", r => { if (r.url().includes("supabase")) cdnCalls.push(r.url()); });
