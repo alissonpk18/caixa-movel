@@ -2,10 +2,12 @@
    usa o fake compartilhado (fake-supabase.mjs), que simula o RLS
    incluindo a tabela admins. Valida o fluxo completo: bloqueio de conta
    comum; admin cria a empresa pelo próprio console (não existe mais
-   cadastro pelo lojista); admin cadastra gerente/caixa; e a "ligação
+   cadastro pelo lojista); admin cadastra gerente/caixa; a "ligação
    correta" pedida — quando essa pessoa loga no PDV com usuário/senha,
    o aparelho é direcionado sozinho para a empresa certa, sem nenhuma
-   tela de "conectar à nuvem". */
+   tela de "conectar à nuvem"; e a revogação de aparelho (achado A-01 do
+   relatório de arquitetura): o admin corta o vínculo pelo console e o
+   aparelho é desconectado no sync seguinte, sem perder os dados locais. */
 import { chromium } from "playwright";
 import { wireFakeCloud, seedAdmin, peekFakeDb } from "./fake-supabase.mjs";
 
@@ -112,6 +114,30 @@ check("acesso criado pelo admin loga direto no aparelho novo", true);
 check("permissão dada pelo admin vale no PDV (+Estoque)", await page2.isVisible("#restockBtn"));
 
 check("sem erros de JS no PDV", errors2.length === 0, errors2.join(" | "));
+
+/* ---- 7. achado A-01 do relatório de arquitetura: revogar o aparelho da
+   maria pelo console — ela para de sincronizar, mas os dados que já
+   tinha localmente (baixados antes da revogação) NÃO são apagados ---- */
+await page.click("#backBtn");
+await page.waitForSelector("#admStores", { state: "visible", timeout: 5000 });
+await page.click("#storeList .store");
+await page.waitForSelector("#admStore", { state: "visible", timeout: 5000 });
+await page.waitForFunction(() => document.getElementById("deviceList").textContent.includes("@maria"), null, { timeout: 5000 });
+check("aparelho da maria aparece na lista após o login dela", true);
+
+page.once("dialog", d => d.accept()); // confirm() nativo de "revogar"
+await page.click('#deviceList button[data-uid]');
+await page.waitForFunction(() => document.getElementById("uMsg").textContent.includes("revogado"), null, { timeout: 5000 });
+check("admin revoga o aparelho pelo console", true);
+
+const localUsersBefore = await page2.evaluate(() => DB.users.length);
+check("aparelho revogado ainda tem os dados locais intactos até o próximo sync", localUsersBefore === 2);
+
+await page2.evaluate(() => cloudSync());
+await page2.waitForSelector("#login.is-active", { timeout: 8000 });
+check("aparelho revogado é desconectado (deslogado) no sync seguinte", true);
+const localUsersAfter = await page2.evaluate(() => DB.users.length);
+check("dados locais NÃO são apagados pela revogação", localUsersAfter === localUsersBefore, `antes=${localUsersBefore} depois=${localUsersAfter}`);
 
 await ctx.close();
 await ctx2.close();

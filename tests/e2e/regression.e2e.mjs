@@ -9,8 +9,16 @@ const check = (name, cond, extra = "") => {
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const ctx = await browser.newContext();
-// modo local: aborta CDNs externos na hora, sem esperar a rede real
-// falhar sozinha (fica rápido e determinístico em qualquer ambiente)
+// modo local: força CLOUD_CONFIG vazio (independente do que estiver
+// commitado em js/config.js) para testar o modo local de forma
+// determinística — senão, credenciais reais no config.js fariam o boot
+// pular o seed de demonstração (gerente/1234) que este teste espera.
+await ctx.route("**/js/config.js", route => route.fulfill({
+  contentType: "application/javascript",
+  body: '"use strict"; const CLOUD_CONFIG = { url: "", anonKey: "" };'
+}));
+// aborta CDNs externos na hora, sem esperar a rede real falhar sozinha
+// (fica rápido e determinístico em qualquer ambiente)
 await ctx.route(/cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net/, route => route.abort());
 const page = await ctx.newPage();
 const errors = [];

@@ -1,0 +1,41 @@
+name: Testes
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Testes unitários (pdv-core + sincronia de versão)
+        run: npm test
+
+      - name: Instala o Playwright (só para os E2E)
+        run: |
+          npm i -D playwright --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Sobe o app localmente (necessário para os E2E)
+        run: python3 -m http.server 8899 --bind 127.0.0.1 &
+
+      - name: Espera o servidor responder
+        run: |
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:8899/pdv-mobile.html > /dev/null && exit 0
+            sleep 0.5
+          done
+          echo "servidor local não respondeu a tempo" >&2
+          exit 1
+
+      - name: Testes E2E (regressão, features, nuvem, admin)
+        env:
+          PDV_URL: http://127.0.0.1:8899
+        run: npm run test:e2e
