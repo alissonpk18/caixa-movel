@@ -77,10 +77,12 @@ function finalizeSale(payment){
     total: cartTotal(),
     payment: payment || { method:"—", received:cartTotal(), change:0 }
   };
-  // baixa de estoque
+  // baixa de estoque (local, otimista — a nuvem aplica o mesmo decremento
+  // de forma atômica via apply_sale, ver js/cloud.js)
   state.cart.forEach(i=>{ const p=findProduct(i.code); if(p){ p.qty=Math.max(0,p.qty-i.qty); } });
   DB.sales.unshift(sale);
   saveProducts(); saveSales();
+  if(typeof cloudEnqueueSale==="function") cloudEnqueueSale(sale.id);
 
   const v=sale.total;
   clearCart();

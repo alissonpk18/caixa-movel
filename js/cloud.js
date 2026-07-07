@@ -20,9 +20,19 @@
    Estratégia: offline-first. O app opera sempre sobre o storage local;
    esta camada empurra mudanças (push, com debounce) e puxa o estado da
    nuvem (pull) ao abrir, ao voltar ao primeiro plano e a cada minuto.
-   Conflitos: última escrita vence; vendas são append-only (upsert
-   idempotente), o caso mais comum de concorrência entre caixas.
-   ================================================================ */
+
+   Conflitos — kv de configuração e metadados de produto (nome/preço/
+   custo/validade) seguem "última escrita vence": simples, e uma segunda
+   gerência mexendo ao mesmo tempo é raro. Três coisas NÃO podem ser
+   assim, porque dois aparelhos mexendo nelas ao mesmo tempo é comum e
+   uma "vencer" apaga silenciosamente o que o outro fez:
+   - QUANTIDADE em estoque: nunca sincronizada por valor absoluto — toda
+     mudança vira uma fila de operações (venda, ajuste relativo,
+     correção absoluta) aplicada por RPCs atômicas no banco.
+   - VENDAS: sempre foram append-only (upsert idempotente por id).
+   - CAIXA (abertura/sangria/reforço/fechamento): também append-only —
+     cada ação é um evento próprio, e o estado é reconstruído
+     reproduzindo os eventos em ordem (nunca mais um documento único). */
 /* versão pinada (não "@2" flutuante) + verificação de integridade (SRI):
    um CDN comprometido não pode trocar silenciosamente o código que fala
    com a nuvem de todas as empresas. Ao atualizar a versão, recalcule o
@@ -34,7 +44,9 @@ const CLOUD_PULL_MS = 60000;
 let sbClient = null;        // cliente Supabase (null = lib não carregada/sem config)
 let cloudStoreId = null;    // id da empresa vinculada a este aparelho (null = ainda não vinculado)
 let cloudApplying = false;  // aplicando um pull: não re-marcar como sujo
-const cloudDirty = { products:false, sales:false, users:false, cash:false, settings:false };
+/* "users" não existe mais aqui — operadores são geridos pelo console
+   admin direto na tabela `operators` (achado A-03); o aparelho só lê. */
+const cloudDirty = { products:false, sales:false, stock:false, cashEvents:false, settings:false };
 let cloudPushT = null;
 
 function cloudEnabled(){
@@ -89,7 +101,18 @@ async function cloudRouteLogin(username, plainPassword){
     if(!hash) return false;
     const { data, error } = await sbClient.rpc("login_operator", { p_username:username, p_hash:hash });
     if(error || !data || !data.length) return false;
-    cloudStoreId = data[0].store_id;
+    const newStoreId = data[0].store_id;
+    /* aparelho usado antes por OUTRA empresa (raro — reaproveitado,
+       revogado e realugado etc.): zera o cache local antes de puxar,
+       senão o merge incremental de vendas (cloudPull) misturaria
+       vendas de duas empresas diferentes no mesmo aparelho */
+    const prevStoreId = await sget("pdv:cloudLastStoreId");
+    if(prevStoreId && prevStoreId !== newStoreId){
+      DB.products=[]; DB.sales=[]; DB.users=[]; DB.cash={ open:null, history:[] };
+      await sset("pdv:cloudSalesPullMark:"+prevStoreId, null);
+    }
+    cloudStoreId = newStoreId;
+    await sset("pdv:cloudLastStoreId", newStoreId);
     await cloudPull();
     cloudStartLoops();
     return true;
@@ -108,13 +131,18 @@ function cloudMarkDirty(kind){
 
 async function cloudPush(){
   if(!cloudOn() || !navigator.onLine) return;
-  if(cloudDirty.products){ await cloudPushProducts(); cloudDirty.products=false; }
-  if(cloudDirty.sales){    await cloudPushSales();    cloudDirty.sales=false; }
-  for(const k of ["users","cash","settings"]){
-    if(cloudDirty[k]){ await cloudPushKV(k); cloudDirty[k]=false; }
-  }
+  if(cloudDirty.products){   await cloudPushProducts();   cloudDirty.products=false; }
+  if(cloudDirty.sales){      await cloudPushSales();       cloudDirty.sales=false; }
+  if(cloudDirty.stock){      await cloudPushStock();       cloudDirty.stock=false; }
+  if(cloudDirty.cashEvents){ await cloudPushCashEvents();  cloudDirty.cashEvents=false; }
+  if(cloudDirty.settings){   await cloudPushKV("settings"); cloudDirty.settings=false; }
 }
 
+/* metadados (nome/preço/custo/validade) + inserção de produto novo.
+   qty vai junto por simplicidade, mas o banco ignora esse campo num
+   UPDATE (gatilho products_protect_qty) — só entra de fato num INSERT
+   (produto que ainda não existia na nuvem). Mudar a quantidade de um
+   produto já existente é sempre via fila (venda/ajuste/correção). */
 async function cloudPushProducts(){
   const rows = DB.products.map(p=>({
     store_id:cloudStoreId, code:String(p.code), name:p.name,
@@ -134,27 +162,120 @@ async function cloudPushProducts(){
   if(error) throw error;
 }
 
+/* fila explícita (achado A-07): cada venda finalizada entra numa lista
+   persistida e só sai dela quando o servidor confirma a RPC apply_sale
+   (idempotente — reenviar não duplica nem debita de novo). Substitui a
+   antiga janela "desde a última vez, com 1h de sobreposição", que
+   dependia do relógio do aparelho e podia deixar vendas para trás. */
 async function cloudPushSales(){
-  // incremental: só vendas desde o último push (com 1h de sobreposição;
-  // o upsert é idempotente, reenvio repetido não duplica)
-  const mark = await sget("pdv:cloudSalesMark");
-  const cut = mark ? new Date(new Date(mark).getTime()-3600000).toISOString() : "";
-  const list = cut ? DB.sales.filter(s=>s.ts>=cut) : DB.sales;
-  const rows = list.map(s=>({
-    store_id:cloudStoreId, id:s.id, at:s.ts, total:s.total,
-    operator:s.operator||"", method:(s.payment&&s.payment.method)||"", data:s
-  }));
-  if(rows.length){
-    const { error } = await sbClient.from("sales").upsert(rows);
-    if(error) throw error;
+  const pending = (await sget("pdv:cloudPendingSales")) || [];
+  for(let i=0;i<pending.length;i++){
+    const sale = DB.sales.find(s=>s.id===pending[i]);
+    if(!sale) continue; // nada a enviar (não deveria acontecer)
+    const { error } = await sbClient.rpc("apply_sale", { p_sale: sale });
+    if(error){ await sset("pdv:cloudPendingSales", pending.slice(i)); throw error; }
   }
-  await sset("pdv:cloudSalesMark", new Date().toISOString());
+  await sset("pdv:cloudPendingSales", []);
+}
+
+/* fila de ajustes de estoque (achado A-02): ajustes relativos primeiro
+   (reposição — soma), depois correções absolutas (edição manual da
+   gerência / restauração de backup — define). Cada RPC é atômica no
+   banco; em caso de erro, preserva só o que ainda não foi aplicado. */
+async function cloudPushStock(){
+  const deltas = (await sget("pdv:cloudPendingStockDeltas")) || [];
+  for(let i=0;i<deltas.length;i++){
+    const { code, delta } = deltas[i];
+    const { error } = await sbClient.rpc("adjust_stock", { p_code:code, p_delta:delta });
+    if(error){ await sset("pdv:cloudPendingStockDeltas", deltas.slice(i)); throw error; }
+  }
+  await sset("pdv:cloudPendingStockDeltas", []);
+
+  const sets = (await sget("pdv:cloudPendingStockSets")) || {};
+  for(const code of Object.keys(sets)){
+    const { error } = await sbClient.rpc("set_stock", { p_code:code, p_qty:sets[code] });
+    if(error){ await sset("pdv:cloudPendingStockSets", sets); throw error; }
+    delete sets[code];
+  }
+  await sset("pdv:cloudPendingStockSets", sets); // {} se tudo foi aplicado
+}
+
+/* chamado por js/sale.js ao finalizar uma venda. */
+async function cloudEnqueueSale(id){
+  if(!cloudEnabled()) return;
+  try{
+    const list = (await sget("pdv:cloudPendingSales")) || [];
+    if(!list.includes(id)){ list.push(id); await sset("pdv:cloudPendingSales", list); }
+  }catch(e){}
+  cloudMarkDirty("sales");
+}
+/* chamado por js/cashbox.js ao confirmar uma reposição (+Estoque). */
+async function cloudEnqueueStockDelta(code, delta){
+  if(!cloudEnabled() || !delta) return;
+  try{
+    const list = (await sget("pdv:cloudPendingStockDeltas")) || [];
+    list.push({ code:String(code), delta });
+    await sset("pdv:cloudPendingStockDeltas", list);
+  }catch(e){}
+  cloudMarkDirty("stock");
+}
+/* chamado por js/main.js (edição manual da quantidade pela gerência) e
+   por js/backup.js (restauração de backup) — "definir", não "somar". */
+async function cloudEnqueueStockSet(code, qty){
+  if(!cloudEnabled()) return;
+  try{
+    const map = (await sget("pdv:cloudPendingStockSets")) || {};
+    map[String(code)] = qty;
+    await sset("pdv:cloudPendingStockSets", map);
+  }catch(e){}
+  cloudMarkDirty("stock");
 }
 
 async function cloudPushKV(key){
-  const value = key==="users" ? DB.users : key==="cash" ? DB.cash : settings;
-  const { error } = await sbClient.from("kv").upsert({ store_id:cloudStoreId, key, value });
+  const { error } = await sbClient.from("kv").upsert({ store_id:cloudStoreId, key, value:settings });
   if(error) throw error;
+}
+
+/* fila de eventos de caixa (achado A-06): abertura, sangria, reforço e
+   fechamento entram como eventos independentes — nunca mais um upsert
+   do documento inteiro, que apagava o movimento feito por outro
+   aparelho enquanto este estava sem sincronizar. */
+async function cloudEnqueueCashEvent(type, data){
+  if(!cloudEnabled()) return;
+  try{
+    const list = (await sget("pdv:cloudPendingCashEvents")) || [];
+    list.push({ id:uid(), at:new Date().toISOString(), type, data });
+    await sset("pdv:cloudPendingCashEvents", list);
+  }catch(e){}
+  cloudMarkDirty("cashEvents");
+}
+async function cloudPushCashEvents(){
+  const pending = (await sget("pdv:cloudPendingCashEvents")) || [];
+  if(!pending.length) return;
+  const rows = pending.map(e=>({ store_id:cloudStoreId, id:e.id, at:e.at, type:e.type, data:e.data }));
+  const { error } = await sbClient.from("cash_events").upsert(rows);
+  if(error) throw error;
+  await sset("pdv:cloudPendingCashEvents", []);
+}
+
+/* reconstrói {open, history} reproduzindo os eventos em ordem — mesmo
+   formato que js/cashbox.js sempre usou, só a origem dos dados muda */
+function reconstructCash(events){
+  let open = null;
+  const history = [];
+  events.forEach(e=>{
+    const d = e.data || {};
+    if(e.type==="open"){
+      open = { openedAt:e.at, operator:d.operator||"—", openingFloat:Number(d.openingFloat)||0, movements:[] };
+    }else if((e.type==="sangria" || e.type==="reforco") && open){
+      open.movements.push({ type:e.type, amount:Number(d.amount)||0, ts:e.at });
+    }else if(e.type==="close" && open){
+      history.unshift({ ...open, closedAt:e.at, expected:Number(d.expected)||0, counted:Number(d.counted)||0,
+        diff:Number(d.diff)||0, salesTotal:Number(d.salesTotal)||0, salesCount:Number(d.salesCount)||0 });
+      open = null;
+    }
+  });
+  return { open, history: history.slice(0,60) };
 }
 
 /* o admin pode revogar o vínculo deste aparelho a qualquer momento
@@ -175,20 +296,40 @@ function cloudHandleRevoked(){
   }catch(e){}
 }
 
-/* ---------- pull (nuvem → local) ---------- */
+/* ---------- pull (nuvem → local) ----------
+   Produtos e kv continuam vindo por inteiro a cada pull — catálogos e
+   documentos pequenos, e enxergar o conjunto todo é o jeito mais simples
+   de refletir exclusões feitas em outro aparelho. Vendas são a parte que
+   cresce sem limite com o tempo (era o "megabytes por minuto" do achado
+   A-05): agora são incrementais — só as mais novas que a última recebida
+   por ESTA empresa, mescladas ao que o aparelho já tinha (nunca
+   substituídas). Histórico muito antigo, além do que já foi baixado uma
+   vez, fica só no servidor — relatórios de período longo buscam sob
+   demanda quando precisarem, não a cada sincronização de rotina. */
 async function cloudPull(){
   if(!cloudOn() || !navigator.onLine) return;
   if(!(await cloudStillLinked())){ cloudHandleRevoked(); return; }
-  const [pr, sl, kv] = await Promise.all([
+
+  const markKey = "pdv:cloudSalesPullMark:"+cloudStoreId;
+  const mark = await sget(markKey);
+  const base = sbClient.from("sales").select("data,at").eq("store_id",cloudStoreId).limit(5000);
+  const salesQuery = mark
+    ? base.gt("at", mark).order("at",{ascending:true})   // backlog novo: mais antigo primeiro
+    : base.order("at",{ascending:false});                 // primeira vez: as 5000 mais recentes
+
+  const [pr, sl, kv, ops, ce] = await Promise.all([
     sbClient.from("products").select("code,name,price,cost,qty,exp").eq("store_id",cloudStoreId),
-    sbClient.from("sales").select("data").eq("store_id",cloudStoreId).order("at",{ascending:false}).limit(5000),
-    sbClient.from("kv").select("key,value").eq("store_id",cloudStoreId)
+    salesQuery,
+    sbClient.from("kv").select("key,value").eq("store_id",cloudStoreId),
+    sbClient.from("operators").select("username,name,role,can_add_stock,pass_hash").eq("store_id",cloudStoreId),
+    sbClient.from("cash_events").select("type,at,data").eq("store_id",cloudStoreId)
   ]);
-  const err = pr.error || sl.error || kv.error;
+  const err = pr.error || sl.error || kv.error || ops.error || ce.error;
   if(err) throw err;
 
   const kvMap = {};
   (kv.data||[]).forEach(r=>{ kvMap[r.key]=r.value; });
+  const salesRows = (sl.data||[]).slice().sort((a,b)=> a.at.localeCompare(b.at));
 
   cloudApplying = true;
   try{
@@ -196,9 +337,30 @@ async function cloudPull(){
       code:p.code, name:p.name, price:Number(p.price),
       cost:(p.cost==null?undefined:Number(p.cost)), qty:p.qty, exp:p.exp||null
     })));
-    DB.sales = sanitizeSales((sl.data||[]).map(r=>r.data));
-    if(kvMap.users)    DB.users = sanitizeUsers(kvMap.users);
-    if(kvMap.cash)     DB.cash  = sanitizeCash(kvMap.cash) || DB.cash;
+
+    const incoming = sanitizeSales(salesRows.map(r=>r.data)) || [];
+    if(incoming.length){
+      const known = new Set(DB.sales.map(s=>s.id));
+      incoming.forEach(s=>{ if(!known.has(s.id)){ DB.sales.push(s); known.add(s.id); } });
+      DB.sales.sort((a,b)=> b.ts.localeCompare(a.ts)); // mais recente primeiro (ordem que a UI espera)
+      await sset(markKey, salesRows[salesRows.length-1].at);
+    }
+
+    // usuários (gerente/caixa) vêm da tabela operators (achado A-03),
+    // gerenciada só pelo console admin — nunca de kv
+    DB.users = sanitizeUsers((ops.data||[]).map(o=>({
+      username:o.username, name:o.name, role:o.role, canAddStock:o.can_add_stock, passHash:o.pass_hash
+    })));
+
+    // caixa (achado A-06): reconstrói reproduzindo os eventos em ordem.
+    // kv.cash só é lido como ponte de migração — enquanto nenhum evento
+    // ainda existe (loja que abriu caixa antes desta mudança), evita
+    // "esquecer" uma sessão aberta; assim que o próximo evento acontecer
+    // (sangria, reforço, fechamento), os eventos passam a mandar.
+    const cashEvents = (ce.data||[]).slice().sort((a,b)=> a.at.localeCompare(b.at));
+    if(cashEvents.length) DB.cash = reconstructCash(cashEvents);
+    else if(kvMap.cash)   DB.cash = sanitizeCash(kvMap.cash) || DB.cash;
+
     if(kvMap.settings) applySettings(kvMap.settings);
     ensureManagerAccess();
     await saveProducts(); await saveSales(); await saveUsers(); await saveCash(); await saveSettings();

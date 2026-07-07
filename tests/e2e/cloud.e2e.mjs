@@ -3,7 +3,10 @@
    nenhuma tela de "conectar à nuvem" — o aparelho usa só o login de
    sempre (usuário/senha); se o usuário não existe localmente, o app
    pergunta à nuvem (RPC login_operator) e se vincula automaticamente
-   à empresa correta. */
+   à empresa correta. Valida também: A-02 — vendas concorrentes do
+   mesmo produto em aparelhos diferentes não perdem baixa de estoque
+   (RPC apply_sale, atômica); e A-06 — dois aparelhos mexendo no mesmo
+   caixa aberto ao mesmo tempo não perdem movimento (eventos append-only). */
 import { createHash } from "node:crypto";
 import { chromium } from "playwright";
 import { wireFakeCloud, seedFakeStore, peekFakeDb } from "./fake-supabase.mjs";
@@ -96,6 +99,51 @@ await pageB.waitForFunction(() => DB.sales.length === 1, null, { timeout: 8000 }
 check("aparelho B vê a venda feita no aparelho A", true);
 check("permissão do usuário veio certa (caixa sem +Estoque)", !(await pageB.isVisible("#restockBtn")));
 
+/* ---- achado A-02 do relatório de arquitetura: duas vendas do MESMO
+   produto em aparelhos diferentes, SEM sincronizar entre uma e outra —
+   cada aparelho decide a partir do próprio estoque local desatualizado.
+   Com "última escrita vence" uma das baixas sumiria; com apply_sale
+   (delta atômico no banco) as duas se aplicam, não importa a ordem. ---- */
+const qtyBeforeRace = peekFakeDb().products.find(p => p.code === "7891000100103").qty;
+check("estoque antes da corrida é o esperado (40−3=37)", qtyBeforeRace === 37, "qty=" + qtyBeforeRace);
+
+await pageA.evaluate(() => {
+  state.cart.push({ code: "7891000100103", name: "Leite Integral 1L", price: 5.49, qty: 2 });
+  finalizeSale({ method: "dinheiro", received: 20, change: 0 });
+});
+await pageB.evaluate(() => {
+  state.cart.push({ code: "7891000100103", name: "Leite Integral 1L", price: 5.49, qty: 5 });
+  finalizeSale({ method: "dinheiro", received: 50, change: 0 });
+});
+const t1 = Date.now();
+while (Date.now() - t1 < 8000 && peekFakeDb().sales.length < 3) await new Promise(r => setTimeout(r, 50));
+check("as duas vendas concorrentes chegaram na nuvem", peekFakeDb().sales.length === 3);
+const qtyAfterRace = peekFakeDb().products.find(p => p.code === "7891000100103").qty;
+check("nenhuma baixa de estoque se perde na corrida (37−2−5=30)", qtyAfterRace === 30, "qty=" + qtyAfterRace);
+
+/* ---- achado A-06 do relatório de arquitetura: dois aparelhos mexendo
+   no MESMO caixa aberto, sem sincronizar entre uma ação e outra — antes
+   o caixa inteiro era um documento só ("última escrita vence") e um
+   aparelho apagava o movimento do outro; agora cada ação é um evento
+   próprio (append-only, como as vendas). ---- */
+await pageB.evaluate(() => { document.getElementById("cash_float").value = "100"; openCash(); });
+await pageB.evaluate(() => cloudSync());
+await pageA.evaluate(() => cloudSync());
+check("aparelho A recebe a abertura de caixa feita pelo aparelho B", await pageA.evaluate(() => !!(DB.cash.open && DB.cash.open.openingFloat === 100)));
+
+// sem sincronizar entre uma ação e outra: cada aparelho só enxerga o
+// próprio movimento até este ponto
+await pageA.evaluate(() => { document.getElementById("cash_mov").value = "30"; cashMovement("reforco"); });
+await pageB.evaluate(() => { document.getElementById("cash_mov").value = "10"; cashMovement("sangria"); });
+await pageA.evaluate(() => cloudSync());
+await pageB.evaluate(() => cloudSync());
+await pageA.evaluate(() => cloudSync()); // 2ª volta: pega o que o B acabou de mandar
+
+const cashEventsCount = peekFakeDb().cash_events.length;
+check("os 3 eventos de caixa chegaram na nuvem (abertura + 2 movimentos)", cashEventsCount === 3, "eventos=" + cashEventsCount);
+const movementsOnA = await pageA.evaluate(() => DB.cash.open.movements.length);
+check("nenhum movimento de caixa se perde na corrida (reforço do A + sangria do B)", movementsOnA === 2, "movimentos=" + movementsOnA);
+
 /* ---- credencial errada: sem crash, sem vínculo indevido ---- */
 await pageB.click("#logoutOp");
 await pageB.fill("#loginUser", "donagerente");
@@ -107,8 +155,49 @@ check("senha errada não loga em lugar nenhum", (await pageB.textContent("#login
 check("sem erros de JS (aparelho A)", errorsA.length === 0, errorsA.join(" | "));
 check("sem erros de JS (aparelho B)", errorsB.length === 0, errorsB.join(" | "));
 
+// força um ciclo de sync completo (push+pull) para checar a marca —
+// o debounce normal só agenda o push; o pull roda no laço periódico/
+// eventos de visibilidade, que este teste não espera acontecer sozinho
+await pageA.evaluate(() => cloudSync());
+const salesMark = await pageA.evaluate(store => sget("pdv:cloudSalesPullMark:" + store), STORE_ID);
+check("marca do pull incremental de vendas foi gravada (A-05)", typeof salesMark === "string" && salesMark.length > 0, "mark=" + salesMark);
+
+/* ---- mesmo aparelho reaproveitado por OUTRA empresa: o sync
+   incremental de vendas (A-05) mescla em vez de substituir, então sem
+   essa guarda um aparelho trocado de empresa ficaria com vendas de
+   duas empresas misturadas. ---- */
+const STORE2_ID = "store-outra-empresa";
+const USERS2 = [{ username:"gerente2", name:"Outro Gerente", role:"gerente", canAddStock:true, passHash: passHash("outrasenha") }];
+const PRODUCTS2 = [{ code:"9999999999999", name:"Produto da Outra Empresa", price:1, cost:null, qty:10, exp:null }];
+seedFakeStore({ storeId: STORE2_ID, name: "Outra Empresa", users: USERS2, products: PRODUCTS2 });
+
+const ctxC = await browser.newContext();
+await wireFakeCloud(ctxC);
+const pageC = await ctxC.newPage();
+const errorsC = [];
+pageC.on("pageerror", e => errorsC.push("pageerror: " + e.message));
+
+await pageC.goto(BASE);
+await pageC.fill("#loginUser", "donagerente");
+await pageC.fill("#loginPass", "segredo123");
+await pageC.click("#loginBtn");
+await pageC.waitForSelector("#gerente.is-active", { timeout: 8000 });
+await pageC.waitForFunction(() => DB.sales.length === 3, null, { timeout: 8000 });
+check("aparelho C (novo) baixa o histórico da 1ª empresa normalmente", true);
+
+await pageC.click("#logoutGer");
+await pageC.fill("#loginUser", "gerente2");
+await pageC.fill("#loginPass", "outrasenha");
+await pageC.click("#loginBtn");
+await pageC.waitForSelector("#gerente.is-active", { timeout: 8000 });
+await pageC.waitForFunction(() => DB.products.some(p => p.code === "9999999999999"), null, { timeout: 8000 });
+const salesAfterSwitch = await pageC.evaluate(() => DB.sales.length);
+check("trocar de empresa no mesmo aparelho não mistura vendas da empresa anterior", salesAfterSwitch === 0, "sales=" + salesAfterSwitch);
+check("sem erros de JS (aparelho C)", errorsC.length === 0, errorsC.join(" | "));
+
 await ctxA.close();
 await ctxB.close();
+await ctxC.close();
 await browser.close();
 if (failures) { console.error(`\n${failures} FALHA(S) NO MODO NUVEM`); process.exit(1); }
 console.log("\nTODOS OS TESTES DO MODO NUVEM PASSARAM");

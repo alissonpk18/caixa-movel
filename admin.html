@@ -52,6 +52,11 @@
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
   @media (max-width:520px){ .grid2{grid-template-columns:1fr} }
   a.back{color:var(--brand);font-weight:700;text-decoration:none;font-size:14px;cursor:pointer}
+  .modal{position:fixed;inset:0;background:rgba(20,24,31,.5);display:none;align-items:center;justify-content:center;padding:20px;z-index:50}
+  .modal.show{display:flex}
+  .modal-box{background:var(--surface);border-radius:18px;padding:20px;max-width:360px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  .modal-title{font-weight:800;font-size:16px;margin-bottom:8px}
+  .modal-msg{color:var(--muted);font-size:14px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -120,6 +125,31 @@
         Revogar desconecta o aparelho na próxima sincronização — os dados que já baixou continuam nele,
         mas ele para de mandar e receber atualizações da empresa.</p>
       <div id="deviceList"></div>
+    </div>
+  </div>
+
+  <!-- confirmação genérica (remover acesso / revogar aparelho) -->
+  <div class="modal" id="confirmModal">
+    <div class="modal-box">
+      <div class="modal-title" id="confirmTitle"></div>
+      <div class="modal-msg" id="confirmMsg"></div>
+      <div class="row" style="margin-top:16px">
+        <button class="btn btn-ghost grow" id="confirmNo">Cancelar</button>
+        <button class="btn btn-bad grow" id="confirmYes">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- nova senha de um usuário -->
+  <div class="modal" id="passModal">
+    <div class="modal-box">
+      <div class="modal-title">Nova senha <span id="passWho"></span></div>
+      <input id="passInput" type="password" autocomplete="new-password" placeholder="mín. 4 caracteres" />
+      <div class="err" id="passErr"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn btn-ghost grow" id="passCancel">Cancelar</button>
+        <button class="btn btn-primary grow" id="passSave">Salvar</button>
+      </div>
     </div>
   </div>
 </div>

@@ -7,8 +7,10 @@
    Row Level Security: só contas presentes na tabela `admins` enxergam
    as lojas dos outros (veja supabase/schema.sql para promover a sua).
 
-   Os usuários de uma empresa vivem no documento kv key='users' da loja;
-   o PDV dos aparelhos puxa as mudanças na próxima sincronização.
+   Os operadores (gerente/caixa) de uma empresa vivem na tabela
+   `operators` (username é chave única em todo o sistema, não só dentro
+   da empresa — impede duas empresas cadastrarem o mesmo login); o PDV
+   dos aparelhos puxa as mudanças na próxima sincronização.
    ================================================================ */
 /* mesma versão pinada + SRI de js/cloud.js — mantenha as duas em sincronia */
 const ADMIN_LIB_URL = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js";
@@ -137,16 +139,17 @@ async function loadDevices(){
   });
 }
 
-async function revokeDevice(authUid){
-  if(!confirm("Revogar este aparelho? Ele para de sincronizar com a empresa a partir de agora.")) return;
-  const { error } = await sb.from("device_links").delete().eq("auth_uid", authUid);
-  if(!error){ $("uMsg").textContent="✓ Aparelho revogado."; await loadDevices(); }
+function revokeDevice(authUid){
+  askConfirm("Revogar aparelho", "Ele para de sincronizar com a empresa a partir de agora — os dados que já baixou continuam nele.", async ()=>{
+    const { error } = await sb.from("device_links").delete().eq("auth_uid", authUid);
+    if(!error){ $("uMsg").textContent="✓ Aparelho revogado."; await loadDevices(); }
+  });
 }
 
 async function loadUsers(){
-  const { data, error } = await sb.from("kv").select("value")
-    .eq("store_id", curStore.id).eq("key","users").maybeSingle();
-  curUsers = (!error && data && Array.isArray(data.value)) ? data.value : [];
+  const { data, error } = await sb.from("operators")
+    .select("username,name,role,can_add_stock").eq("store_id", curStore.id).order("username");
+  curUsers = (!error && data) ? data.map(o=>({ username:o.username, name:o.name, role:o.role, canAddStock:o.can_add_stock })) : [];
   renderUsers();
 }
 
@@ -166,37 +169,63 @@ function renderUsers(){
   });
 }
 
-async function saveUsers(msg){
-  const { error } = await sb.from("kv").upsert({ store_id:curStore.id, key:"users", value:curUsers });
-  if(error){ $("uMsg").textContent=""; $("nu_err").textContent="Erro ao salvar — tente de novo."; return false; }
-  $("nu_err").textContent="";
-  $("uMsg").textContent=msg+" Os aparelhos da loja recebem na próxima sincronização.";
-  renderUsers();
-  return true;
+function announceSaved(msg){ $("nu_err").textContent=""; $("uMsg").textContent=msg+" Os aparelhos da loja recebem na próxima sincronização."; }
+
+function userAction(action,i){
+  const u=curUsers[i]; if(!u) return;
+  if(action==="perm") togglePerm(u);
+  if(action==="pass") askNewPassword(u.username, i);
+  if(action==="del") maybeDeleteUser(u);
 }
 
-async function userAction(action,i){
-  const u=curUsers[i]; if(!u) return;
-  if(action==="perm"){
-    u.canAddStock=!u.canAddStock;
-    await saveUsers(`✓ Permissão de ${u.username} atualizada.`);
+async function togglePerm(u){
+  const { error } = await sb.from("operators").update({ can_add_stock: !u.canAddStock }).eq("username", u.username);
+  if(error){ $("nu_err").textContent="Erro ao salvar — tente de novo."; return; }
+  u.canAddStock=!u.canAddStock;
+  announceSaved(`✓ Permissão de ${u.username} atualizada.`);
+  renderUsers();
+}
+
+function maybeDeleteUser(u){
+  if(u.role==="gerente" && curUsers.filter(x=>x.role==="gerente").length<=1){
+    $("uMsg").textContent=""; $("nu_err").textContent="Não dá para remover o último gerente da empresa.";
+    return;
   }
-  if(action==="pass"){
-    const pw=prompt(`Nova senha para @${u.username} (mín. 4 caracteres):`);
-    if(pw==null) return;
-    if(pw.length<4){ alert("Senha muito curta."); return; }
-    const h=await hashPassword(pw);
-    if(h){ u.passHash=h; delete u.password; } else { u.password=pw; delete u.passHash; }
-    await saveUsers(`✓ Senha de ${u.username} trocada.`);
-  }
-  if(action==="del"){
-    if(u.role==="gerente" && curUsers.filter(x=>x.role==="gerente").length<=1){
-      alert("Não dá para remover o último gerente da empresa."); return;
-    }
-    if(!confirm(`Remover o acesso de @${u.username}?`)) return;
-    curUsers.splice(i,1);
-    await saveUsers(`✓ Acesso de ${u.username} removido.`);
-  }
+  askConfirm("Remover acesso", `Remover o acesso de @${u.username}?`, async ()=>{
+    const { error } = await sb.from("operators").delete().eq("username", u.username);
+    if(error){ $("nu_err").textContent="Erro ao remover — tente de novo."; return; }
+    await loadUsers();
+    announceSaved(`✓ Acesso de ${u.username} removido.`);
+  });
+}
+
+/* ---------- modais (confirmação e nova senha) — substituem confirm()/prompt() nativos ---------- */
+let confirmCb=null;
+function askConfirm(title,msg,onYes){
+  $("confirmTitle").textContent=title; $("confirmMsg").textContent=msg;
+  confirmCb=onYes; $("confirmModal").classList.add("show");
+}
+function closeConfirm(){ $("confirmModal").classList.remove("show"); confirmCb=null; }
+
+let passTargetIndex=null;
+function askNewPassword(username, idx){
+  passTargetIndex=idx;
+  $("passWho").textContent="para @"+username;
+  $("passInput").value=""; $("passErr").textContent="";
+  $("passModal").classList.add("show");
+  setTimeout(()=>{ try{ $("passInput").focus(); }catch(e){} },80);
+}
+function closePassModal(){ $("passModal").classList.remove("show"); passTargetIndex=null; }
+async function saveNewPassword(){
+  const pw=$("passInput").value;
+  if(pw.length<4){ $("passErr").textContent="Senha muito curta (mín. 4 caracteres)."; return; }
+  const u=curUsers[passTargetIndex]; if(!u){ closePassModal(); return; }
+  const hash=await hashPassword(pw);
+  if(!hash){ $("passErr").textContent="Não foi possível gerar a senha neste navegador."; return; }
+  const { error } = await sb.from("operators").update({ pass_hash:hash }).eq("username", u.username);
+  if(error){ $("passErr").textContent="Erro ao salvar — tente de novo."; return; }
+  closePassModal();
+  announceSaved(`✓ Senha de ${u.username} trocada.`);
 }
 
 async function addUser(){
@@ -206,15 +235,22 @@ async function addUser(){
   const pw=$("nu_pass").value;
   const err=$("nu_err"); err.textContent="";
   if(!/^[a-z0-9._-]{2,20}$/.test(username)){ err.textContent="Login inválido (2–20 letras/números, sem espaços)."; return; }
-  if(curUsers.some(x=>x.username.toLowerCase()===username)){ err.textContent="Já existe um acesso com este login."; return; }
   if(pw.length<4){ err.textContent="Senha muito curta (mín. 4 caracteres)."; return; }
-  const nu={ username, name:name||username, role, canAddStock:false };
-  const h=await hashPassword(pw);
-  if(h) nu.passHash=h; else nu.password=pw;
-  curUsers.push(nu);
-  if(await saveUsers(`✓ ${username} adicionado como ${role==="gerente"?"gerente":"caixa"}.`)){
-    $("nu_user").value=""; $("nu_name").value=""; $("nu_pass").value="";
+  const hash=await hashPassword(pw);
+  if(!hash){ err.textContent="Não foi possível gerar a senha neste navegador."; return; }
+  const { error } = await sb.from("operators").insert({
+    username, store_id:curStore.id, name:name||username, role, can_add_stock:false, pass_hash:hash
+  });
+  if(error){
+    // username é chave única em TODO o sistema — outra empresa pode já tê-lo
+    err.textContent = /duplicate|unique|already exists/i.test(error.message||"")
+      ? "Este login já existe (em alguma empresa) — escolha outro."
+      : "Não foi possível cadastrar — tente de novo.";
+    return;
   }
+  $("nu_user").value=""; $("nu_name").value=""; $("nu_pass").value="";
+  await loadUsers();
+  announceSaved(`✓ ${username} adicionado como ${role==="gerente"?"gerente":"caixa"}.`);
 }
 
 async function saveStoreName(){
@@ -230,4 +266,9 @@ $("backBtn").addEventListener("click", ()=>{ $("admStore").style.display="none";
 $("stSaveBtn").addEventListener("click", saveStoreName);
 $("ns_addBtn").addEventListener("click", createStore);
 $("nu_addBtn").addEventListener("click", addUser);
+$("confirmYes").addEventListener("click", ()=>{ const cb=confirmCb; closeConfirm(); if(cb) cb(); });
+$("confirmNo").addEventListener("click", closeConfirm);
+$("passCancel").addEventListener("click", closePassModal);
+$("passSave").addEventListener("click", saveNewPassword);
+$("passInput").addEventListener("keydown", e=>{ if(e.key==="Enter") saveNewPassword(); });
 init();
