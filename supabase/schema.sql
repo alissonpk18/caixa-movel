@@ -22,8 +22,27 @@ create table if not exists public.stores (
   owner      uuid not null default auth.uid() unique
              references auth.users(id) on delete cascade,
   name       text not null default 'Minha loja',
+  email      text not null default '',
   created_at timestamptz not null default now()
 );
+
+-- ---------------------------------------------------------------------
+-- Administradores da PLATAFORMA (você): enxergam e gerenciam todas as
+-- lojas pelo console admin.html. Para promover uma conta a admin, crie
+-- a conta normalmente pelo app e rode no SQL Editor:
+--   insert into public.admins (user_id)
+--   select id from auth.users where email = 'seu@email.com';
+-- ---------------------------------------------------------------------
+create table if not exists public.admins (
+  user_id    uuid primary key references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create or replace function public.is_admin()
+returns boolean
+language sql stable security definer
+set search_path = public
+as $$ select exists (select 1 from public.admins where user_id = auth.uid()) $$;
 
 -- ---------------------------------------------------------------------
 -- Produtos: chave natural é (loja, código de barras).
@@ -84,30 +103,38 @@ alter table public.stores   enable row level security;
 alter table public.products enable row level security;
 alter table public.sales    enable row level security;
 alter table public.kv       enable row level security;
+alter table public.admins   enable row level security;
+
+-- cada conta só vê a própria linha de admin (o console usa isto para
+-- saber se a conta logada é administradora); ninguém se promove via API
+drop policy if exists "self admin" on public.admins;
+create policy "self admin" on public.admins
+  for select to authenticated
+  using (user_id = auth.uid());
 
 drop policy if exists "own store"    on public.stores;
 create policy "own store" on public.stores
   for all to authenticated
-  using (owner = auth.uid())
-  with check (owner = auth.uid());
+  using (owner = auth.uid() or public.is_admin())
+  with check (owner = auth.uid() or public.is_admin());
 
 drop policy if exists "own products" on public.products;
 create policy "own products" on public.products
   for all to authenticated
-  using (store_id = public.my_store_id())
-  with check (store_id = public.my_store_id());
+  using (store_id = public.my_store_id() or public.is_admin())
+  with check (store_id = public.my_store_id() or public.is_admin());
 
 drop policy if exists "own sales"    on public.sales;
 create policy "own sales" on public.sales
   for all to authenticated
-  using (store_id = public.my_store_id())
-  with check (store_id = public.my_store_id());
+  using (store_id = public.my_store_id() or public.is_admin())
+  with check (store_id = public.my_store_id() or public.is_admin());
 
 drop policy if exists "own kv"       on public.kv;
 create policy "own kv" on public.kv
   for all to authenticated
-  using (store_id = public.my_store_id())
-  with check (store_id = public.my_store_id());
+  using (store_id = public.my_store_id() or public.is_admin())
+  with check (store_id = public.my_store_id() or public.is_admin());
 
 -- mantém updated_at correto em upserts
 create or replace function public.touch_updated_at()

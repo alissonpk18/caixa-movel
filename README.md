@@ -82,6 +82,24 @@ segue *offline-first*: opera local e sincroniza quando há internet (última
 escrita vence; vendas são somadas, nunca sobrescritas). No primeiro acesso
 de um aparelho, os dados da nuvem substituem os locais.
 
+### Console do administrador (`admin.html`)
+
+Para quem opera o SaaS: a página **`admin.html`** lista todas as empresas
+e permite gerenciar os **gerentes e caixas de cada uma** (criar acesso,
+trocar senha, liberar reposição de estoque, remover, renomear a empresa).
+Os aparelhos da loja recebem as mudanças na sincronização seguinte.
+
+Para promover a sua conta a administradora, crie-a normalmente pelo app e
+rode no SQL Editor do Supabase:
+
+```sql
+insert into public.admins (user_id)
+select id from auth.users where email = 'seu@email.com';
+```
+
+O acesso é garantido pelo banco (RLS): contas comuns não enxergam as
+lojas alheias mesmo chamando a API diretamente.
+
 ### Instalar no celular (PWA)
 
 Abra a URL no navegador do celular e use **"Adicionar à tela inicial"**. Após a
@@ -96,6 +114,7 @@ primeira visita, o app abre **offline**.
 | `css/pdv.css`              | Todo o estilo do app.                           |
 | `js/config.js`             | Configuração da nuvem (vazia = modo local).     |
 | `js/cloud.js`              | Sincronização com a nuvem (modo SaaS).          |
+| `admin.html` / `js/admin.js` | Console do administrador da plataforma.       |
 | `supabase/schema.sql`      | Esquema do banco para o modo SaaS.              |
 | `js/helpers.js`            | Utilitários e versão do app.                    |
 | `js/store.js`              | Camada de dados (storage, DB, sessão, boot).    |

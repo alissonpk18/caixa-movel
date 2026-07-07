@@ -64,7 +64,7 @@ async function cloudEnsureStore(){
   let { data, error } = await sbClient.from("stores").select("id").maybeSingle();
   if(error) throw error;
   if(!data){
-    const r = await sbClient.from("stores").insert({ name:"Minha loja" }).select("id").single();
+    const r = await sbClient.from("stores").insert({ name:"Minha loja", email:cloudUserEmail }).select("id").single();
     if(r.error) throw r.error;
     data = r.data;
   }
