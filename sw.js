@@ -2,7 +2,7 @@
    Estratégia: cache-first com atualização em segundo plano
    (stale-while-revalidate). Permite abrir e operar o app offline
    depois da primeira visita, sem servir HTML velho para sempre. */
-const CACHE = "pdv-cache-v13";
+const CACHE = "pdv-cache-v14";
 const ASSETS = [
   "./",
   "./index.html",
@@ -37,6 +37,23 @@ self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET" || !req.url.startsWith("http")) return;
   e.respondWith((async () => {
+    // HTML (navegação): rede primeiro, cache só como fallback offline.
+    // Garante que um deploy novo apareça já na visita seguinte, em vez de
+    // ficar preso no cache até uma segunda recarga.
+    if (req.mode === "navigate" || req.destination === "document") {
+      try {
+        const res = await fetch(req);
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+        }
+        return res;
+      } catch (err) {
+        const cached = await caches.match(req) || await caches.match("./pdv-mobile.html");
+        if (cached) return cached;
+        return new Response("Offline", { status: 503, statusText: "Offline" });
+      }
+    }
     const cached = await caches.match(req);
     // revalida em segundo plano: a próxima visita já pega a versão nova
     const network = fetch(req).then(res => {
