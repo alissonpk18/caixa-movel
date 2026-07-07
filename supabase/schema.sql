@@ -84,7 +84,8 @@ create index if not exists sales_store_at on public.sales (store_id, at desc);
 
 -- ---------------------------------------------------------------------
 -- kv: documentos da loja que o app sincroniza inteiros
--- (chaves usadas hoje: 'users', 'cash', 'settings').
+-- (chaves usadas hoje: 'cash', 'settings' — 'users' virou a tabela
+-- `operators` abaixo, achado A-03 do relatório de arquitetura).
 -- ---------------------------------------------------------------------
 create table if not exists public.kv (
   store_id   uuid not null references public.stores(id) on delete cascade,
@@ -93,6 +94,30 @@ create table if not exists public.kv (
   updated_at timestamptz not null default now(),
   primary key (store_id, key)
 );
+
+-- ---------------------------------------------------------------------
+-- Operadores (gerente/caixa) de cada empresa. Antes viviam num array
+-- JSON dentro de kv (key='users'), sem nada impedindo duas empresas
+-- terem o mesmo login — login_operator() então varria TODAS as
+-- empresas linha a linha até achar uma senha que batesse, o que era
+-- ambíguo (a "vencedora" era só a ordem de retorno do banco) e ficava
+-- mais lento à medida que a plataforma crescesse. Agora `username` é
+-- chave primária GLOBAL: o próprio Postgres impede duplicidade entre
+-- empresas, e o login vira uma busca por índice em vez de uma varredura.
+-- Só o admin escreve aqui (pelo console); o aparelho só lê (via
+-- login_operator, que roda com privilégio elevado, e via sincronização
+-- normal para os já vinculados).
+-- ---------------------------------------------------------------------
+create table if not exists public.operators (
+  username      text primary key,
+  store_id      uuid not null references public.stores(id) on delete cascade,
+  name          text not null default '',
+  role          text not null default 'operador',
+  can_add_stock boolean not null default false,
+  pass_hash     text not null,
+  updated_at    timestamptz not null default now()
+);
+create index if not exists operators_store on public.operators(store_id);
 
 -- ---------------------------------------------------------------------
 -- Vínculo aparelho↔empresa. Uma linha por sessão anônima (= aparelho);
@@ -137,6 +162,7 @@ alter table public.sales        enable row level security;
 alter table public.kv           enable row level security;
 alter table public.admins       enable row level security;
 alter table public.device_links enable row level security;
+alter table public.operators    enable row level security;
 
 -- cada aparelho só vê a própria linha de vínculo (útil para o app saber
 -- se já está vinculado/segue vinculado ao abrir); o admin vê todas, para
@@ -183,6 +209,20 @@ create policy "own kv" on public.kv
   using (store_id = public.my_store_id() or public.is_admin())
   with check (store_id = public.my_store_id() or public.is_admin());
 
+-- aparelho vinculado LÊ os operadores da própria empresa (é assim que
+-- recebe gerente/caixa cadastrados ou alterados no console); só o admin
+-- escreve (cadastrar, trocar senha, revogar acesso, remover).
+drop policy if exists "device reads own operators" on public.operators;
+create policy "device reads own operators" on public.operators
+  for select to authenticated
+  using (store_id = public.my_store_id() or public.is_admin());
+
+drop policy if exists "admin manages operators" on public.operators;
+create policy "admin manages operators" on public.operators
+  for all to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
 -- mantém updated_at correto em upserts
 create or replace function public.touch_updated_at()
 returns trigger language plpgsql as
@@ -194,6 +234,10 @@ create trigger products_touch before update on public.products
 
 drop trigger if exists kv_touch on public.kv;
 create trigger kv_touch before update on public.kv
+  for each row execute function public.touch_updated_at();
+
+drop trigger if exists operators_touch on public.operators;
+create trigger operators_touch before update on public.operators
   for each row execute function public.touch_updated_at();
 
 -- ---------------------------------------------------------------------
@@ -208,9 +252,9 @@ create trigger kv_touch before update on public.kv
 -- em diante o RLS normal libera a sincronização dos dados da empresa.
 --
 -- Requer uma sessão (mesmo anônima) — é ela quem diz "este aparelho".
--- Percorre a lista de usuários de cada empresa (kv.key='users'); para
--- o tamanho esperado de uma plataforma pequena/média isso é rápido o
--- bastante — otimize com um índice dedicado só se um dia isso importar.
+-- Busca por chave primária em `operators` (username é único no sistema
+-- todo) — O(1) via índice, e sem a ambiguidade de duas empresas
+-- poderem cadastrar o mesmo login (o próprio Postgres impede).
 -- ---------------------------------------------------------------------
 create or replace function public.login_operator(p_username text, p_hash text)
 returns table(store_id uuid, name text, role text, can_add_stock boolean)
@@ -218,29 +262,25 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-  rec  record;
-  elem jsonb;
+declare rec record;
 begin
   if auth.uid() is null then
     return; -- sem sessão não há a quem vincular o aparelho
   end if;
 
-  for rec in select kv.store_id as sid, kv.value as val from public.kv where key = 'users' loop
-    for elem in select * from jsonb_array_elements(coalesce(rec.val, '[]'::jsonb)) loop
-      if lower(elem->>'username') = lower(p_username)
-         and coalesce(elem->>'passHash','') <> ''
-         and elem->>'passHash' = p_hash then
-        insert into public.device_links (auth_uid, store_id, username) values (auth.uid(), rec.sid, p_username)
-          on conflict (auth_uid) do update
-            set store_id = excluded.store_id, username = excluded.username, linked_at = now();
-        return query select rec.sid, coalesce(elem->>'name',''), coalesce(elem->>'role','operador'),
-          coalesce((elem->>'canAddStock')::boolean, false);
-        return;
-      end if;
-    end loop;
-  end loop;
-  return; -- nenhuma empresa tem esse usuário/senha
+  select o.store_id, o.name, o.role, o.can_add_stock, o.pass_hash
+    into rec
+    from public.operators o
+    where o.username = lower(p_username);
+
+  if rec.store_id is null or rec.pass_hash <> p_hash then
+    return; -- login não existe ou senha não bate
+  end if;
+
+  insert into public.device_links (auth_uid, store_id, username) values (auth.uid(), rec.store_id, p_username)
+    on conflict (auth_uid) do update
+      set store_id = excluded.store_id, username = excluded.username, linked_at = now();
+  return query select rec.store_id, rec.name, rec.role, rec.can_add_stock;
 end;
 $$;
 

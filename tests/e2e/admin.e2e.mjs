@@ -5,9 +5,11 @@
    cadastro pelo lojista); admin cadastra gerente/caixa; a "ligação
    correta" pedida — quando essa pessoa loga no PDV com usuário/senha,
    o aparelho é direcionado sozinho para a empresa certa, sem nenhuma
-   tela de "conectar à nuvem"; e a revogação de aparelho (achado A-01 do
+   tela de "conectar à nuvem"; a revogação de aparelho (achado A-01 do
    relatório de arquitetura): o admin corta o vínculo pelo console e o
-   aparelho é desconectado no sync seguinte, sem perder os dados locais. */
+   aparelho é desconectado no sync seguinte, sem perder os dados locais;
+   e o login como chave única GLOBAL (achado A-03): duas empresas não
+   podem cadastrar o mesmo username. */
 import { chromium } from "playwright";
 import { wireFakeCloud, seedAdmin, peekFakeDb } from "./fake-supabase.mjs";
 
@@ -81,15 +83,15 @@ await page.selectOption("#nu_role", "operador");
 await page.fill("#nu_pass", "789456");
 await page.click("#nu_addBtn");
 await page.waitForFunction(() => document.getElementById("uMsg").textContent.includes("maria"), null, { timeout: 5000 });
-const kvUsers = peekFakeDb().kv.find(r => r.key === "users").value;
-check("gerente e caixa cadastrados pelo admin", kvUsers.length === 2);
-check("senha guardada como hash (não em texto)", kvUsers.every(u => u.passHash && !u.password));
+const operatorsOfStore = () => peekFakeDb().operators.filter(o => o.store_id === peekFakeDb().stores.find(s => s.name === "Mercadinho da Dona").id);
+check("gerente e caixa cadastrados pelo admin (tabela operators, A-03)", operatorsOfStore().length === 2);
+check("senha guardada como hash (não em texto)", operatorsOfStore().every(o => o.pass_hash && !o.password));
 
 // libera a permissão de reposição de estoque da caixa
 await page.click('#userList button[data-a="perm"][data-i="1"]');
 await waitDb(d => {
-  const u = d.kv.find(r => r.key === "users").value.find(x => x.username === "maria");
-  return u && u.canAddStock === true;
+  const o = d.operators.find(x => x.username === "maria");
+  return o && o.can_add_stock === true;
 });
 check("permissão de reposição liberada pelo admin", true);
 
@@ -145,6 +147,26 @@ await page2.waitForSelector("#login.is-active", { timeout: 8000 });
 check("aparelho revogado é desconectado (deslogado) no sync seguinte", true);
 const localUsersAfter = await page2.evaluate(() => DB.users.length);
 check("dados locais NÃO são apagados pela revogação", localUsersAfter === localUsersBefore, `antes=${localUsersBefore} depois=${localUsersAfter}`);
+
+/* ---- 8. achado A-03 do relatório de arquitetura: login é chave única
+   GLOBAL, não só dentro da empresa — outra empresa não pode cadastrar
+   um username que já existe em alguma empresa ---- */
+await page.click("#backBtn");
+await page.waitForSelector("#admStores", { state: "visible", timeout: 5000 });
+await page.fill("#ns_name", "Segunda Empresa");
+await page.click("#ns_addBtn");
+await page.waitForFunction(() => document.getElementById("storeList").textContent.includes("Segunda Empresa"), null, { timeout: 5000 });
+await page.click("#storeList .store:has-text('Segunda Empresa')");
+await page.waitForSelector("#admStore", { state: "visible", timeout: 5000 });
+
+await page.fill("#nu_user", "donagerente"); // já existe na 1ª empresa
+await page.fill("#nu_name", "Outra Pessoa");
+await page.selectOption("#nu_role", "gerente");
+await page.fill("#nu_pass", "999999");
+await page.click("#nu_addBtn");
+await page.waitForFunction(() => document.getElementById("nu_err").textContent.length > 0, null, { timeout: 5000 });
+check("login duplicado entre empresas é rejeitado (username único global)", (await page.textContent("#nu_err")).includes("já existe"));
+check("nenhum operador foi criado na 2ª empresa após a rejeição", (await page.textContent("#userList")).includes("Nenhum acesso"));
 
 await ctx.close();
 await ctx2.close();

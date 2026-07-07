@@ -41,7 +41,9 @@ const CLOUD_PULL_MS = 60000;
 let sbClient = null;        // cliente Supabase (null = lib não carregada/sem config)
 let cloudStoreId = null;    // id da empresa vinculada a este aparelho (null = ainda não vinculado)
 let cloudApplying = false;  // aplicando um pull: não re-marcar como sujo
-const cloudDirty = { products:false, sales:false, stock:false, users:false, cash:false, settings:false };
+/* "users" não existe mais aqui — operadores são geridos pelo console
+   admin direto na tabela `operators` (achado A-03); o aparelho só lê. */
+const cloudDirty = { products:false, sales:false, stock:false, cash:false, settings:false };
 let cloudPushT = null;
 
 function cloudEnabled(){
@@ -129,7 +131,7 @@ async function cloudPush(){
   if(cloudDirty.products){ await cloudPushProducts(); cloudDirty.products=false; }
   if(cloudDirty.sales){    await cloudPushSales();    cloudDirty.sales=false; }
   if(cloudDirty.stock){    await cloudPushStock();    cloudDirty.stock=false; }
-  for(const k of ["users","cash","settings"]){
+  for(const k of ["cash","settings"]){
     if(cloudDirty[k]){ await cloudPushKV(k); cloudDirty[k]=false; }
   }
 }
@@ -228,7 +230,7 @@ async function cloudEnqueueStockSet(code, qty){
 }
 
 async function cloudPushKV(key){
-  const value = key==="users" ? DB.users : key==="cash" ? DB.cash : settings;
+  const value = key==="cash" ? DB.cash : settings;
   const { error } = await sbClient.from("kv").upsert({ store_id:cloudStoreId, key, value });
   if(error) throw error;
 }
@@ -272,12 +274,13 @@ async function cloudPull(){
     ? base.gt("at", mark).order("at",{ascending:true})   // backlog novo: mais antigo primeiro
     : base.order("at",{ascending:false});                 // primeira vez: as 5000 mais recentes
 
-  const [pr, sl, kv] = await Promise.all([
+  const [pr, sl, kv, ops] = await Promise.all([
     sbClient.from("products").select("code,name,price,cost,qty,exp").eq("store_id",cloudStoreId),
     salesQuery,
-    sbClient.from("kv").select("key,value").eq("store_id",cloudStoreId)
+    sbClient.from("kv").select("key,value").eq("store_id",cloudStoreId),
+    sbClient.from("operators").select("username,name,role,can_add_stock,pass_hash").eq("store_id",cloudStoreId)
   ]);
-  const err = pr.error || sl.error || kv.error;
+  const err = pr.error || sl.error || kv.error || ops.error;
   if(err) throw err;
 
   const kvMap = {};
@@ -299,7 +302,11 @@ async function cloudPull(){
       await sset(markKey, salesRows[salesRows.length-1].at);
     }
 
-    if(kvMap.users)    DB.users = sanitizeUsers(kvMap.users);
+    // usuários (gerente/caixa) vêm da tabela operators (achado A-03),
+    // gerenciada só pelo console admin — nunca de kv
+    DB.users = sanitizeUsers((ops.data||[]).map(o=>({
+      username:o.username, name:o.name, role:o.role, canAddStock:o.can_add_stock, passHash:o.pass_hash
+    })));
     if(kvMap.cash)     DB.cash  = sanitizeCash(kvMap.cash) || DB.cash;
     if(kvMap.settings) applySettings(kvMap.settings);
     ensureManagerAccess();
