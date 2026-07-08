@@ -42,6 +42,15 @@ function wire(){
   $("scanClose").addEventListener("click", closeScanModal);
   $("scanModal").addEventListener("click", e=>{ if(e.target.id==="scanModal") closeScanModal(); });
 
+  // tocar fora da busca/resultados fecha a busca e volta pra tela normal do caixa
+  document.addEventListener("click", e=>{
+    if(!searchQuery) return;
+    if(!$("operador").classList.contains("is-active")) return;
+    if(e.target.closest(".searchbar") || e.target.closest("#searchResults")) return;
+    $("prodSearch2").blur();
+    resetSearch();
+  }, true);
+
   // carrinho (delegação)
   $("cartList").addEventListener("click", e=>{
     const b=e.target.closest("button"); if(!b) return;
@@ -59,6 +68,7 @@ function wire(){
 
   // pagamento
   $("payMethods").addEventListener("click", e=>{ const b=e.target.closest("button"); if(b) selectMethod(b.dataset.m); });
+  $("payCardType").addEventListener("click", e=>{ const b=e.target.closest("button"); if(b) selectCardType(b.dataset.c); });
   $("payReceived").addEventListener("input", updateChange);
   $("payClose").addEventListener("click", ()=>$("payModal").classList.remove("show"));
   $("payConfirm").addEventListener("click", confirmPay);

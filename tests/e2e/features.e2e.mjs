@@ -138,6 +138,25 @@ const clip2 = await page.evaluate(() => navigator.clipboard.readText());
 check("comprovante copiado com total", clip2.includes("TOTAL") && clip2.includes("10,00"), clip2.slice(0, 80));
 await page.click("#receiptClose");
 
+// ---- 7.5 cartão: exige escolher débito/crédito e salva no registro ----
+await page.evaluate(() => addByCode("9990001112223"));
+await page.click("#finalizeBtn");
+await page.waitForSelector("#payModal.show");
+await page.click('#payMethods [data-m="cartao"]');
+await page.waitForSelector("#payCardWrap", { state: "visible" });
+await page.click("#payConfirm");
+await page.waitForTimeout(150);
+check("cartão sem tipo escolhido não fecha o modal", await page.evaluate(() => document.getElementById("payModal").classList.contains("show")));
+check("erro pede pra escolher débito ou crédito", (await page.textContent("#payCardErr")).length > 0);
+await page.click('#payCardType [data-c="credito"]');
+await page.click("#payConfirm");
+await page.waitForTimeout(300);
+const cardSale = await page.evaluate(() => JSON.parse(localStorage.getItem("pdv:sales"))[0]);
+check("venda no cartão salva o tipo crédito", cardSale.payment.method === "cartao" && cardSale.payment.cardType === "credito", JSON.stringify(cardSale.payment));
+const cardReceiptTxt = await page.textContent("#receiptBox");
+check("comprovante mostra Cartão (Crédito)", cardReceiptTxt.includes("Crédito"), cardReceiptTxt.slice(0, 200));
+await page.click("#receiptClose");
+
 // ---- 8. sangria e fechamento com conferência ----
 await page.click("#cashBtn");
 await page.waitForSelector("#cashModal.show");

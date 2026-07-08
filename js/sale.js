@@ -93,13 +93,21 @@ function finalizeSale(payment){
 
 /* ---------- pagamento + troco ---------- */
 const PAY_LABEL = { dinheiro:"Dinheiro", cartao:"Cartão", pix:"Pix" };
+const CARD_LABEL = { debito:"Débito", credito:"Crédito" };
+function paymentLabel(pay){
+  const base=PAY_LABEL[pay.method]||pay.method||"—";
+  return (pay.method==="cartao" && pay.cardType) ? base+" ("+CARD_LABEL[pay.cardType]+")" : base;
+}
 function openPay(){
   if(!state.cart.length) return;
-  state.pay={ method:"dinheiro" };
+  state.pay={ method:"dinheiro", cardType:null };
   $("payTotal").textContent=money(cartTotal());
   $("payMethods").querySelectorAll("button").forEach(b=>b.classList.toggle("active", b.dataset.m==="dinheiro"));
+  $("payCardType").querySelectorAll("button").forEach(b=>b.classList.remove("active"));
+  $("payCardErr").textContent="";
   $("payReceived").value="";
   $("payCashWrap").style.display="block";
+  $("payCardWrap").style.display="none";
   $("payPixWrap").style.display="none";
   updateChange();
   $("payModal").classList.add("show");
@@ -109,8 +117,14 @@ function selectMethod(m){
   state.pay.method=m;
   $("payMethods").querySelectorAll("button").forEach(b=>b.classList.toggle("active", b.dataset.m===m));
   $("payCashWrap").style.display = m==="dinheiro" ? "block" : "none";
+  $("payCardWrap").style.display = m==="cartao" ? "block" : "none";
   $("payPixWrap").style.display = m==="pix" ? "block" : "none";
   if(m==="pix") renderPixPay();
+}
+function selectCardType(c){
+  state.pay.cardType=c;
+  $("payCardType").querySelectorAll("button").forEach(b=>b.classList.toggle("active", b.dataset.c===c));
+  $("payCardErr").textContent="";
 }
 
 /* ---------- Pix na finalização (BR Code estático com o valor da venda) ---------- */
@@ -184,7 +198,14 @@ function confirmPay(){
     if(received < total){ toast("Valor recebido menor que o total","bad"); beep("bad"); return; }
     change=round2(received-total);
   }
-  const sale=finalizeSale({ method:state.pay.method, received, change });
+  if(state.pay.method==="cartao" && !state.pay.cardType){
+    $("payCardErr").textContent="Escolha Débito ou Crédito.";
+    beep("bad");
+    return;
+  }
+  const payment={ method:state.pay.method, received, change };
+  if(state.pay.method==="cartao") payment.cardType=state.pay.cardType;
+  const sale=finalizeSale(payment);
   $("payModal").classList.remove("show");
   if(sale) showReceipt(sale);
 }
@@ -194,7 +215,7 @@ function showReceipt(sale){
   state.lastSale=sale;
   const t=new Date(sale.ts).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
   const pay=sale.payment||{method:"—"};
-  const methodLabel=PAY_LABEL[pay.method]||pay.method||"—";
+  const methodLabel=paymentLabel(pay);
   const lines=sale.items.map(i=>`<div class="r-it"><span>${escapeHtml(i.name)} ×${i.qty}</span><span>${money(i.price*i.qty)}</span></div>`).join("");
   let payExtra="";
   if(pay.method==="dinheiro"){
@@ -233,7 +254,7 @@ function printReceipt(){
 function receiptText(sale){
   const t=new Date(sale.ts).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
   const pay=sale.payment||{method:"—"};
-  const label=PAY_LABEL[pay.method]||pay.method||"—";
+  const label=paymentLabel(pay);
   const lines=sale.items.map(i=>i.name+" x"+i.qty+"  "+money(i.price*i.qty)).join("\n");
   let extra="";
   if(pay.method==="dinheiro") extra="\nRecebido: "+money(pay.received)+"\nTroco: "+money(pay.change);

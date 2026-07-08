@@ -77,8 +77,16 @@ await page.click(".search-item");
 await page.waitForTimeout(150);
 const totalAfterSearch = await page.textContent("#cartTotal");
 check("adicionar via busca soma R$ 5,49 ao carrinho", totalAfterSearch.includes("5,49"), totalAfterSearch);
-// limpa a busca e desfaz o item pra não afetar os testes de venda a seguir
-await page.click("#searchClear");
+// clicar fora da busca/resultados fecha e volta pro carrinho normal
+await page.click("#statusStrip");
+await page.waitForTimeout(100);
+const afterOutsideClick = await page.evaluate(() => ({
+  inputVal: document.getElementById("prodSearch2").value,
+  resultsHidden: document.getElementById("searchResults").style.display === "none",
+  cartVisible: document.getElementById("cartList").style.display !== "none"
+}));
+check("clicar fora da busca fecha os resultados e volta pro carrinho", afterOutsideClick.inputVal === "" && afterOutsideClick.resultsHidden && afterOutsideClick.cartVisible, JSON.stringify(afterOutsideClick));
+// desfaz o item pra não afetar os testes de venda a seguir
 await page.evaluate(() => removeItem("7891000100103"));
 await page.waitForTimeout(100);
 

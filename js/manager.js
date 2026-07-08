@@ -124,7 +124,7 @@ function renderSales(){
     const t=d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
     const dd=showDate ? d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})+" " : "";
     const n=s.items.reduce((a,i)=>a+i.qty,0);
-    const payLabel=s.payment ? (PAY_LABEL[s.payment.method]||s.payment.method||"") : "";
+    const payLabel=s.payment ? paymentLabel(s.payment) : "";
     return `<div class="sale" data-id="${escapeHtml(s.id)}">
       <div class="head" data-toggle="${escapeHtml(s.id)}">
         <div class="meta"><b>${dd}${t}</b> · ${n} ${n===1?"item":"itens"} · ${escapeHtml(s.operator)}${payLabel?" · "+escapeHtml(payLabel):""}</div>
@@ -158,7 +158,7 @@ function exportCsv(){
   const rows=[["Data/Hora","Operador","Pagamento","Produto","Codigo","Qtd","Preco Unit","Subtotal","Total Venda"]];
   list.forEach(s=>{
     const dt=new Date(s.ts).toLocaleString("pt-BR");
-    const pay=s.payment ? (PAY_LABEL[s.payment.method]||s.payment.method||"") : "";
+    const pay=s.payment ? paymentLabel(s.payment) : "";
     s.items.forEach(i=>{
       rows.push([dt,s.operator,pay,i.name,i.code,i.qty,csvNum(i.price),csvNum(i.price*i.qty),csvNum(s.total)]);
     });
