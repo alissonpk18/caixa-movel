@@ -12,7 +12,7 @@ if(!window.PDV){
 
 /* Versão do app — mantenha em sincronia com CACHE do sw.js.
    Aparece no canto inferior direito para confirmar visualmente a atualização. */
-const APP_VERSION = "v22";
+const APP_VERSION = "v23";
 
 /* ---------- helpers ---------- */
 const $ = (id) => document.getElementById(id);
@@ -23,7 +23,8 @@ const {
   QTY_MAX, PRICE_MAX, round2, parseMoney, escapeHtml, csvCell, csvNum,
   isIsoDate, keyToIso, isoToKey, dateKey, daysUntilExp,
   sanitizeSettings, sanitizeUsers, sanitizeProducts, sanitizeCash,
-  pixPayload, sessionSales, cashExpected, salesSummary, abcAnalysis, dailyAvgMap, daysOfStock
+  pixPayload, sessionSales, cashExpected, salesSummary, abcAnalysis, dailyAvgMap, daysOfStock,
+  salesByOperator, salesByHour, salesByWeekday, paymentBreakdown, dailyRevenueSeries, basketPairs
 } = window.PDV;
 const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "id-"+Date.now()+"-"+Math.random().toString(16).slice(2);
 const sanitizeSales = (list) => window.PDV.sanitizeSales(list, uid);

@@ -245,6 +245,106 @@
   /* dias de estoque restantes no ritmo atual (Infinity = sem consumo medido) */
   function daysOfStock(qty, avgPerDay) { return avgPerDay > 0 ? qty / avgPerDay : Infinity; }
 
+  /* ---------- indicadores gerenciais ---------- */
+  /* ranking de vendedores por faturamento (quem mais vendeu) */
+  function salesByOperator(list) {
+    const map = Object.create(null);
+    (Array.isArray(list) ? list : []).forEach(s => {
+      const k = String(s.operator || "—");
+      const e = map[k] || (map[k] = { operator: k, count: 0, revenue: 0, items: 0 });
+      e.count += 1;
+      e.revenue += Number(s.total) || 0;
+      e.items += (Array.isArray(s.items) ? s.items : []).reduce((a, i) => a + (Number(i.qty) || 0), 0);
+    });
+    const rows = Object.values(map).map(e => ({ ...e, revenue: round2(e.revenue) }));
+    rows.sort((a, b) => b.revenue - a.revenue);
+    return rows;
+  }
+
+  /* vendas por hora do dia (0-23, hora local do aparelho — mesma base usada nos recibos) */
+  function salesByHour(list) {
+    const buckets = Array.from({ length: 24 }, (_, h) => ({ hour: h, count: 0, revenue: 0 }));
+    (Array.isArray(list) ? list : []).forEach(s => {
+      const t = Date.parse(s && s.ts); if (!isFinite(t)) return;
+      const b = buckets[new Date(t).getHours()];
+      b.count += 1; b.revenue += Number(s.total) || 0;
+    });
+    buckets.forEach(b => { b.revenue = round2(b.revenue); });
+    return buckets;
+  }
+
+  /* vendas por dia da semana (0=domingo … 6=sábado, hora local) */
+  function salesByWeekday(list) {
+    const buckets = Array.from({ length: 7 }, (_, d) => ({ day: d, count: 0, revenue: 0 }));
+    (Array.isArray(list) ? list : []).forEach(s => {
+      const t = Date.parse(s && s.ts); if (!isFinite(t)) return;
+      const b = buckets[new Date(t).getDay()];
+      b.count += 1; b.revenue += Number(s.total) || 0;
+    });
+    buckets.forEach(b => { b.revenue = round2(b.revenue); });
+    return buckets;
+  }
+
+  /* faturamento por forma de pagamento */
+  function paymentBreakdown(list) {
+    const map = Object.create(null);
+    (Array.isArray(list) ? list : []).forEach(s => {
+      const k = (s.payment && s.payment.method) ? String(s.payment.method) : "—";
+      const e = map[k] || (map[k] = { method: k, count: 0, revenue: 0 });
+      e.count += 1; e.revenue += Number(s.total) || 0;
+    });
+    const rows = Object.values(map).map(e => ({ ...e, revenue: round2(e.revenue) }));
+    rows.sort((a, b) => b.revenue - a.revenue);
+    return rows;
+  }
+
+  /* série diária de faturamento dos últimos N dias (para gráfico de tendência) */
+  function dailyRevenueSeries(list, days, now) {
+    days = days || 14;
+    const end = now ? new Date(now) : new Date();
+    end.setHours(0, 0, 0, 0);
+    const map = Object.create(null);
+    (Array.isArray(list) ? list : []).forEach(s => {
+      const t = Date.parse(s && s.ts); if (!isFinite(t)) return;
+      const d = new Date(t); d.setHours(0, 0, 0, 0);
+      const diff = Math.round((end - d) / 86400000);
+      if (diff < 0 || diff >= days) return;
+      const k = dateKey(d);
+      map[k] = (map[k] || 0) + (Number(s.total) || 0);
+    });
+    const out = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(end); d.setDate(d.getDate() - i);
+      const k = dateKey(d);
+      out.push({ key: k, date: d, revenue: round2(map[k] || 0) });
+    }
+    return out;
+  }
+
+  /* pares de produtos comprados juntos na mesma venda (cesta de compras),
+     ordenados do mais frequente ao menos frequente */
+  function basketPairs(list, limit) {
+    const map = Object.create(null);
+    (Array.isArray(list) ? list : []).forEach(s => {
+      const items = Array.isArray(s.items) ? s.items : [];
+      const names = Object.create(null);
+      items.forEach(i => { if (i && i.code != null) names[String(i.code)] = String(i.name || i.code); });
+      const codes = Array.from(new Set(Object.keys(names)));
+      for (let a = 0; a < codes.length; a++) {
+        for (let b = a + 1; b < codes.length; b++) {
+          const x = codes[a] < codes[b] ? codes[a] : codes[b];
+          const y = codes[a] < codes[b] ? codes[b] : codes[a];
+          const k = x + "|" + y;
+          const e = map[k] || (map[k] = { a: x, b: y, nameA: names[x], nameB: names[y], count: 0 });
+          e.count += 1;
+        }
+      }
+    });
+    const rows = Object.values(map);
+    rows.sort((a, b) => b.count - a.count);
+    return typeof limit === "number" ? rows.slice(0, limit) : rows;
+  }
+
   return {
     QTY_MAX, PRICE_MAX,
     round2, parseMoney, escapeHtml, csvCell, csvNum,
@@ -252,6 +352,7 @@
     sanitizeSettings, sanitizeUsers, sanitizeProducts, sanitizeSales, sanitizeCash,
     stripAccents, pixText, crc16, pixPayload,
     sessionSales, cashExpected,
-    salesSummary, abcAnalysis, dailyAvgMap, daysOfStock
+    salesSummary, abcAnalysis, dailyAvgMap, daysOfStock,
+    salesByOperator, salesByHour, salesByWeekday, paymentBreakdown, dailyRevenueSeries, basketPairs
   };
 });

@@ -62,6 +62,7 @@
     <div class="topbar">
       <div class="who" id="opName">Caixa<small>Operador</small></div>
       <div class="grow"></div>
+      <button class="iconbtn" id="backToGerBtn" title="Voltar para a gerência" aria-label="Voltar para a gerência" style="display:none">←</button>
       <button class="iconbtn" id="restockBtn" title="Adicionar ao estoque" style="display:none">+Estoque</button>
       <button class="iconbtn" id="cashBtn" title="Controle de caixa">Caixa</button>
       <button class="iconbtn" id="muteBtn" title="Som" aria-label="Ativar ou silenciar o som">🔊</button>
@@ -106,6 +107,8 @@
     <div class="topbar">
       <div class="who" id="gerName">Gerência<small>Estoque e resumo</small></div>
       <div class="grow"></div>
+      <button class="iconbtn" id="goCaixaBtn" title="Ir para o caixa">Caixa</button>
+      <button class="iconbtn" id="goDashBtn" title="Indicadores">Indicadores</button>
       <button class="iconbtn" id="logoutGer">Sair</button>
     </div>
     <div id="storageBanner2"></div>
@@ -214,6 +217,24 @@
           <div class="err" id="backupErr"></div>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- ============ INDICADORES (dashboard gerencial) ============ -->
+  <section class="screen" id="indicadores">
+    <div class="topbar">
+      <div class="who" id="dashTitle">Indicadores<small>Análises para decisão</small></div>
+      <div class="grow"></div>
+      <button class="iconbtn" id="dashBackBtn">Voltar</button>
+    </div>
+    <div class="mscroll">
+      <div class="dash-filter" id="dashFilter">
+        <button data-days="7">7 dias</button>
+        <button data-days="30" class="active">30 dias</button>
+        <button data-days="90">90 dias</button>
+        <button data-days="0">Tudo</button>
+      </div>
+      <div id="dashContent"></div>
     </div>
   </section>
 
@@ -399,6 +420,7 @@
 <script src="./js/search.js"></script>
 <script src="./js/backup.js"></script>
 <script src="./js/manager.js"></script>
+<script src="./js/dashboard.js"></script>
 <script src="./js/users.js"></script>
 <script src="./js/cashbox.js"></script>
 <script src="./js/modals.js"></script>

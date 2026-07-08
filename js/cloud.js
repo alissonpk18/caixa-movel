@@ -385,7 +385,8 @@ async function cloudSync(){
 /* re-renderiza o que estiver na tela após um pull */
 function cloudRefreshUI(){
   try{
-    if(state.user && state.user.role==="gerente" && $("gerente").classList.contains("is-active")) renderManager();
-    if(state.user && state.user.role==="operador") renderCart();
+    if(state.user && $("gerente").classList.contains("is-active")) renderManager();
+    if(state.user && $("indicadores").classList.contains("is-active")) renderDashboard();
+    if(state.user && $("operador").classList.contains("is-active")) renderCart();
   }catch(e){}
 }

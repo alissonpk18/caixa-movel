@@ -15,6 +15,20 @@ function wire(){
   $("logoutOp").addEventListener("click", logout);
   $("logoutGer").addEventListener("click", logout);
 
+  // gerência ⇄ caixa (o gerente pode operar o caixa sem trocar de sessão)
+  $("goCaixaBtn").addEventListener("click", enterCaixaFromManager);
+  $("backToGerBtn").addEventListener("click", backToManager);
+
+  // gerência: indicadores (dashboard)
+  $("goDashBtn").addEventListener("click", enterDashboard);
+  $("dashBackBtn").addEventListener("click", backToManager);
+  $("dashFilter").addEventListener("click", e=>{
+    const b=e.target.closest("button"); if(!b) return;
+    $("dashFilter").querySelectorAll("button").forEach(x=>x.classList.toggle("active", x===b));
+    dashDays=parseInt(b.dataset.days,10)||0;
+    renderDashboard();
+  });
+
   // mudo
   $("muteBtn").addEventListener("click", ()=>{
     state.muted=!state.muted;
@@ -108,7 +122,7 @@ function wire(){
   // Só age na tela do caixa e quando nenhum campo de texto está focado.
   let wedgeBuf="", wedgeT=0;
   document.addEventListener("keydown", e=>{
-    if(!state.user || state.user.role!=="operador") return;
+    if(!state.user) return;
     if(!$("operador").classList.contains("is-active")) return;
     const tag=(document.activeElement&&document.activeElement.tagName)||"";
     if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT") return;

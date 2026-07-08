@@ -266,3 +266,84 @@ test("dailyAvgMap e daysOfStock estimam a reposição", () => {
   assert.equal(PDV.daysOfStock(5, 0), Infinity);
   assert.equal(Object.keys(PDV.dailyAvgMap(null, 14, now)).length, 0);
 });
+
+/* ---------- indicadores gerenciais ---------- */
+test("salesByOperator ranqueia vendedores por faturamento", () => {
+  const sales = [
+    { operator: "Ana", total: 100, items: [{ qty: 2 }] },
+    { operator: "Ana", total: 50, items: [{ qty: 1 }] },
+    { operator: "Bia", total: 30, items: [{ qty: 3 }] }
+  ];
+  const rows = PDV.salesByOperator(sales);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].operator, "Ana");
+  assert.equal(rows[0].revenue, 150);
+  assert.equal(rows[0].count, 2);
+  assert.equal(rows[0].items, 3);
+  assert.equal(rows[1].operator, "Bia");
+  assert.deepEqual(PDV.salesByOperator([]), []);
+});
+
+test("salesByHour e salesByWeekday agrupam por horário e dia local", () => {
+  const d1 = new Date(2026, 6, 6, 9, 0, 0);  // segunda-feira, 09h
+  const d2 = new Date(2026, 6, 6, 9, 30, 0); // segunda-feira, 09h
+  const d3 = new Date(2026, 6, 7, 18, 0, 0); // terça-feira, 18h
+  const sales = [
+    { ts: d1.toISOString(), total: 10 },
+    { ts: d2.toISOString(), total: 20 },
+    { ts: d3.toISOString(), total: 5 }
+  ];
+  const hours = PDV.salesByHour(sales);
+  assert.equal(hours.length, 24);
+  assert.equal(hours[9].count, 2);
+  assert.equal(hours[9].revenue, 30);
+  assert.equal(hours[18].count, 1);
+
+  const weekdays = PDV.salesByWeekday(sales);
+  assert.equal(weekdays.length, 7);
+  assert.equal(weekdays[d1.getDay()].count, 2);
+  assert.equal(weekdays[d1.getDay()].revenue, 30);
+  assert.equal(weekdays[d3.getDay()].count, 1);
+  assert.deepEqual(PDV.salesByHour(null).reduce((a, b) => a + b.count, 0), 0);
+});
+
+test("paymentBreakdown soma faturamento por forma de pagamento", () => {
+  const sales = [
+    { total: 10, payment: { method: "dinheiro" } },
+    { total: 20, payment: { method: "pix" } },
+    { total: 30, payment: { method: "dinheiro" } },
+    { total: 5, payment: null }
+  ];
+  const rows = PDV.paymentBreakdown(sales);
+  assert.equal(rows[0].method, "dinheiro");
+  assert.equal(rows[0].revenue, 40);
+  assert.equal(rows[0].count, 2);
+  assert.ok(rows.some(r => r.method === "—" && r.revenue === 5));
+});
+
+test("dailyRevenueSeries preenche todos os dias da janela, mesmo sem vendas", () => {
+  const now = "2026-07-04T12:00:00Z";
+  const sales = [
+    { ts: "2026-07-04T10:00:00Z", total: 15 },
+    { ts: "2026-07-02T10:00:00Z", total: 5 }
+  ];
+  const series = PDV.dailyRevenueSeries(sales, 3, now);
+  assert.equal(series.length, 3);
+  assert.equal(series[2].revenue, 15); // hoje
+  assert.equal(series[0].revenue, 5);  // 2 dias atrás
+  assert.equal(series[1].revenue, 0);  // ontem, sem vendas
+});
+
+test("basketPairs identifica produtos comprados juntos", () => {
+  const sales = [
+    { items: [{ code: "1", name: "Pão" }, { code: "2", name: "Manteiga" }] },
+    { items: [{ code: "1", name: "Pão" }, { code: "2", name: "Manteiga" }] },
+    { items: [{ code: "1", name: "Pão" }, { code: "3", name: "Café" }] },
+    { items: [{ code: "9", name: "Sozinho" }] }
+  ];
+  const pairs = PDV.basketPairs(sales);
+  assert.equal(pairs[0].a, "1"); assert.equal(pairs[0].b, "2"); assert.equal(pairs[0].count, 2);
+  assert.equal(pairs.find(p => p.b === "3").count, 1);
+  assert.equal(PDV.basketPairs(sales, 1).length, 1);
+  assert.deepEqual(PDV.basketPairs([]), []);
+});

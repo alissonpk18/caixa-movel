@@ -16,10 +16,28 @@ function enterApp(found){
   }else{
     $("opName").innerHTML = escapeHtml(found.name||"Caixa")+"<small>Operador</small>";
     $("restockBtn").style.display = canAddStock(found) ? "" : "none";
+    $("backToGerBtn").style.display = "none";
     clearCart();
     resetSearch();
     show("operador");
   }
+}
+
+/* gerência: ir para o caixa sem encerrar a sessão (mesmo usuário, mesmas permissões) */
+function enterCaixaFromManager(){
+  if(!state.user || state.user.role!=="gerente") return;
+  $("opName").innerHTML = escapeHtml(state.user.name||"Caixa")+"<small>Gerência no caixa</small>";
+  $("restockBtn").style.display = canAddStock(state.user) ? "" : "none";
+  $("backToGerBtn").style.display = "";
+  clearCart();
+  resetSearch();
+  show("operador");
+}
+
+/* caixa: voltar para a gerência sem passar pelo login de novo */
+function backToManager(){
+  show("gerente");
+  renderManager();
 }
 
 /* ---------- senhas ----------
