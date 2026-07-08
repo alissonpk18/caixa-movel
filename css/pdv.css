@@ -125,6 +125,10 @@
     font-size:16px;font-weight:600;-webkit-user-select:text;user-select:text}
   .searchinput::placeholder{color:var(--muted);font-weight:500}
   .searchinput:focus{outline:none}
+  /* input[type=search] já vem com um "x" nativo no Chrome/Android — removido
+     pra sobrar só o nosso botão (evita o "x" duplicado) */
+  .searchinput::-webkit-search-cancel-button,
+  .searchinput::-webkit-search-decoration{-webkit-appearance:none;appearance:none}
   .searchclear{flex:0 0 auto;width:30px;height:30px;border-radius:50%;background:var(--bad-bg);
     color:var(--bad);font-size:14px;font-weight:800;display:grid;place-items:center}
   .searchclear:active{background:#F9C7C7}
