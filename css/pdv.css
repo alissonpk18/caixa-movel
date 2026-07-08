@@ -114,18 +114,26 @@
      ============================================================ */
 
   /* busca de produtos — opção principal de adicionar itens ao carrinho */
-  .searchbar{flex:0 0 auto;display:flex;gap:8px;align-items:center;
-    padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--line)}
-  .searchbox{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:46px;
-    border:1.5px solid var(--line);border-radius:13px;padding:0 12px;background:var(--bg)}
-  .searchbox:focus-within{border-color:var(--brand);background:#fff}
-  .searchicon{font-size:15px;opacity:.6;flex:0 0 auto}
+  .searchbar{flex:0 0 auto;display:flex;gap:10px;align-items:center;
+    padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--line)}
+  .searchbox{flex:1;min-width:0;display:flex;align-items:center;gap:10px;height:var(--tap);
+    border:2px solid var(--line);border-radius:16px;padding:0 16px;background:var(--bg);
+    transition:border-color .15s,background .15s,box-shadow .15s}
+  .searchbox:focus-within{border-color:var(--brand);background:#fff;box-shadow:0 0 0 4px rgba(45,78,216,.14)}
+  .searchicon{font-size:19px;opacity:.55;flex:0 0 auto}
   .searchinput{flex:1;min-width:0;height:100%;background:none;border:none;color:var(--ink);
-    -webkit-user-select:text;user-select:text}
-  .searchinput::placeholder{color:var(--muted)}
+    font-size:16px;font-weight:600;-webkit-user-select:text;user-select:text}
+  .searchinput::placeholder{color:var(--muted);font-weight:500}
   .searchinput:focus{outline:none}
-  .searchclear{flex:0 0 auto;width:26px;height:26px;border-radius:50%;background:var(--line);
-    color:var(--muted);font-size:12px;display:grid;place-items:center}
+  .searchclear{flex:0 0 auto;width:30px;height:30px;border-radius:50%;background:var(--line);
+    color:var(--muted);font-size:14px;font-weight:700;display:grid;place-items:center}
+  .searchclear:active{background:#D5D9E0}
+
+  /* botão da câmera — opção secundária, ao lado da busca, com destaque suficiente pra ser achado */
+  .searchscanbtn{flex:0 0 auto;width:var(--tap);height:var(--tap);border-radius:16px;
+    background:var(--brand);color:#fff;font-size:24px;display:grid;place-items:center;
+    box-shadow:0 4px 14px rgba(45,78,216,.35)}
+  .searchscanbtn:active{background:var(--brand-press)}
 
   /* lista de resultados da busca — reaproveita o espaço do carrinho */
   .search-results{padding-top:2px}
