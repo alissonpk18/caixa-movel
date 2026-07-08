@@ -105,7 +105,6 @@ function wire(){
 
   // gerência: cadastro de usuários e permissões
   $("addUserBtn").addEventListener("click", addUser);
-  $("nu_role").addEventListener("change", syncRolePerm);
   $("nu_pass").addEventListener("keydown", e=>{ if(e.key==="Enter") addUser(); });
   $("userList").addEventListener("change", e=>{
     const cb=e.target.closest("[data-act='togglestock']"); if(!cb) return;

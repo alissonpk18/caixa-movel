@@ -26,6 +26,13 @@
      Simplificação: a "RLS" de escrita aqui não distingue admin de
      aparelho comum para operators/device_links (no app real só o
      admin.js escreve nelas; nenhum teste tenta o caminho contrário).
+   - rpc('manager_create_cashier'|'manager_set_cashier_stock'|
+     'manager_delete_cashier', ...): espelham as RPCs que deixam um
+     GERENTE cadastrar/gerenciar os CAIXAS da própria empresa — exigem
+     que o aparelho esteja vinculado a uma empresa E que o operador
+     logado (achado via device_links.username) tenha role 'gerente';
+     nunca aceitam store_id do cliente (resolvido a partir do vínculo) e
+     nunca alteram/removem uma linha com role='gerente'.
    - cash_events (achado A-06): abertura/sangria/reforço/fechamento do
      caixa como eventos append-only, upsert idempotente por id — mesmo
      tratamento que sales já tinha antes das RPCs de estoque. */
@@ -46,7 +53,44 @@ function keyOf(t,r){
   return r.store_id+"|"+r.key;
 }
 
+/* empresa e papel de quem está chamando, a partir do vínculo do
+   aparelho (device_links) — mesma resolução de my_store_id()/
+   my_operator_role() no banco real (supabase/schema.sql) */
+function callerStoreAndRole(uid){
+  const link = DB.device_links.find(x=>x.auth_uid===uid);
+  if(!link) return { store_id:null, role:null };
+  const op = DB.operators.find(x=>x.username===link.username);
+  return { store_id: link.store_id, role: op ? op.role : null };
+}
+
 function handleFakeApi({ fn, uid, args }){
+  if(fn==="rpc.manager_create_cashier"){
+    if(!uid) return { data:null, error:{ message:"not authenticated" } };
+    const { store_id, role } = callerStoreAndRole(uid);
+    if(!store_id || role!=="gerente") return { data:null, error:{ message:"apenas gerentes podem cadastrar caixas" } };
+    const username = String(args.p_username||"").toLowerCase();
+    if(!/^[a-z0-9._-]{2,20}$/.test(username)) return { data:null, error:{ message:"login inválido" } };
+    if(!args.p_pass_hash || String(args.p_pass_hash).length<32) return { data:null, error:{ message:"senha inválida" } };
+    if(DB.operators.some(o=>o.username===username)){
+      return { data:null, error:{ message:"duplicate key value violates unique constraint", code:"23505" } };
+    }
+    DB.operators.push({
+      username, store_id, name: args.p_name||username, role:"operador",
+      can_add_stock: !!args.p_can_add_stock, pass_hash: args.p_pass_hash
+    });
+    return { data:null, error:null };
+  }
+  if(fn==="rpc.manager_set_cashier_stock" || fn==="rpc.manager_delete_cashier"){
+    if(!uid) return { data:null, error:{ message:"not authenticated" } };
+    const { store_id, role } = callerStoreAndRole(uid);
+    if(!store_id || role!=="gerente") return { data:null, error:{ message:"apenas gerentes podem gerenciar caixas" } };
+    const username = String(args.p_username||"").toLowerCase();
+    const target = DB.operators.find(o=>o.username===username && o.store_id===store_id && o.role!=="gerente");
+    if(!target) return { data:null, error:{ message:"caixa não encontrado nesta empresa" } };
+    if(fn==="rpc.manager_set_cashier_stock") target.can_add_stock = !!args.p_allow;
+    else DB.operators = DB.operators.filter(o=>o!==target);
+    return { data:null, error:null };
+  }
   if(fn==="rpc.login_operator"){
     if(!uid) return { data:[], error:null };
     const username = String(args.p_username).toLowerCase();
@@ -175,7 +219,8 @@ window.supabase = { createClient: function(){
     return api;
   }
   async function rpc(name, args){
-    if(!["login_operator","apply_sale","adjust_stock","set_stock"].includes(name)){
+    if(!["login_operator","apply_sale","adjust_stock","set_stock",
+         "manager_create_cashier","manager_set_cashier_stock","manager_delete_cashier"].includes(name)){
       return { data:null, error:{message:"unknown rpc"} };
     }
     return call("rpc."+name, args);

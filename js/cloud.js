@@ -44,8 +44,12 @@ const CLOUD_PULL_MS = 60000;
 let sbClient = null;        // cliente Supabase (null = lib não carregada/sem config)
 let cloudStoreId = null;    // id da empresa vinculada a este aparelho (null = ainda não vinculado)
 let cloudApplying = false;  // aplicando um pull: não re-marcar como sujo
-/* "users" não existe mais aqui — operadores são geridos pelo console
-   admin direto na tabela `operators` (achado A-03); o aparelho só lê. */
+/* "users" não entra na fila de dirty/push — a escrita em `operators` é
+   sempre síncrona e imediata via RPC (cloudCreateCashier/cloudSetCashierStock/
+   cloudDeleteCashier, logo abaixo): admin.html grava direto na tabela, e
+   agora o gerente também escreve, mas só nos CAIXAS da própria empresa
+   (manager_* em supabase/schema.sql). O aparelho sempre LÊ o resultado
+   pelo pull normal — nunca "empurra" o array DB.users inteiro. */
 const cloudDirty = { products:false, sales:false, stock:false, cashEvents:false, settings:false };
 let cloudPushT = null;
 
@@ -117,6 +121,33 @@ async function cloudRouteLogin(username, plainPassword){
     cloudStartLoops();
     return true;
   }catch(e){ return false; }
+}
+
+/* ---------- operadores: gerente cadastra/gerencia os CAIXAS da própria
+   empresa (js/users.js) ---------- */
+/* diferente do resto da sincronização (fila + debounce), estas chamadas
+   são síncronas: a tela só reflete "cadastrado"/"removido" depois que o
+   banco confirma, porque o RPC pode recusar (regra de negócio ou de
+   RLS) e não faria sentido mostrar algo que a nuvem não aceitou. O
+   store_id nunca é enviado — quem resolve a empresa é a RPC
+   manager_create_cashier (schema.sql), a partir de quem está logado
+   neste aparelho; é assim que o caixa herda a empresa automaticamente. */
+async function cloudCreateCashier(username, name, passHash, canAddStock){
+  if(!cloudOn()) return { ok:false, error:"offline" };
+  const { error } = await sbClient.rpc("manager_create_cashier", {
+    p_username: username, p_name: name, p_pass_hash: passHash, p_can_add_stock: !!canAddStock
+  });
+  return error ? { ok:false, error: error.message||String(error) } : { ok:true };
+}
+async function cloudSetCashierStock(username, allow){
+  if(!cloudOn()) return { ok:false, error:"offline" };
+  const { error } = await sbClient.rpc("manager_set_cashier_stock", { p_username: username, p_allow: !!allow });
+  return error ? { ok:false, error: error.message||String(error) } : { ok:true };
+}
+async function cloudDeleteCashier(username){
+  if(!cloudOn()) return { ok:false, error:"offline" };
+  const { error } = await sbClient.rpc("manager_delete_cashier", { p_username: username });
+  return error ? { ok:false, error: error.message||String(error) } : { ok:true };
 }
 
 /* ---------- push (local → nuvem) ---------- */

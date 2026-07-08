@@ -32,9 +32,11 @@ barras pela câmera, controle de estoque e relatórios de vendas. Funciona como
   - Estoque: aviso de **reposição** ("estoque para ~X dias") calculado pela
     média de vendas dos últimos 14 dias.
   - **Backup**: exportação/importação de todos os dados em JSON.
-  - Usuários: **cadastrar caixas e gerentes**, definir login/senha e conceder a
-    **permissão de adicionar itens ao estoque** a cada caixa (com remoção de
-    usuários e travas para não excluir a si mesmo nem o último gerente).
+  - Usuários: **cadastrar caixas**, definir login/senha e conceder a
+    **permissão de adicionar itens ao estoque** a cada um (com remoção de
+    usuários e trava para não excluir a si mesmo). Contas de **gerência** são
+    exclusivas do administrador da plataforma (veja "Modo SaaS" abaixo) — a
+    própria gerência não cria nem remove outro gerente por aqui.
 - **Reposição pelo caixa**: o operador com a permissão liberada ganha o botão
   **"+Estoque"** para lançar entradas de mercadoria em produtos já cadastrados,
   podendo informar a **validade da mercadoria que entrou**.
@@ -90,6 +92,17 @@ confere a senha com o mesmo hash já usado localmente e, se bater, vincula
 o aparelho àquela empresa. Da próxima vez o login resolve local, sem ida
 à nuvem. O app segue *offline-first*: opera local e sincroniza quando há
 internet (última escrita vence; vendas são somadas, nunca sobrescritas).
+
+Uma vez com pelo menos um gerente cadastrado, ele mesmo cadastra e gerencia
+os **caixas da própria empresa** direto pela aba "Usuários" da gerência —
+sem precisar do console admin para isso. Por baixo, isso chama RPCs no
+banco (`manager_create_cashier`, `manager_set_cashier_stock`,
+`manager_delete_cashier`) que resolvem a empresa a partir de quem está
+logado: o `store_id` nunca é enviado pelo cliente, então o caixa criado
+**herda automaticamente** a empresa do gerente, e não há como cadastrar
+alguém fora dela. Essas RPCs também recusam qualquer tentativa de criar,
+editar ou remover uma conta de **gerente** — isso continua exclusivo do
+administrador da plataforma, pelo `admin.html`.
 
 ### Console do administrador (`admin.html`)
 
