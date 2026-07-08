@@ -6,6 +6,16 @@ const isDeniedErr = (err)=>{
   const s=((err&&err.name)||""+err).toLowerCase();
   return s.includes("notallowed")||s.includes("permission");
 };
+// leitor de código de barras: opção secundária, aberta sob demanda (modal),
+// então a câmera só liga quando o operador realmente pede.
+function openScanModal(){
+  $("scanModal").classList.add("show");
+  startScanner();
+}
+function closeScanModal(){
+  $("scanModal").classList.remove("show");
+  stopScanner();
+}
 function startScanner(){
   $("scanFallback").classList.remove("show");
   if(state.scanReady || state.scanStarting) return;

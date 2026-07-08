@@ -69,26 +69,22 @@
     </div>
     <div id="storageBanner"></div>
 
-    <div class="scanwrap">
-      <div id="reader"></div>
-      <div class="reticle"><div class="frame"></div><div class="laser"></div></div>
-      <div class="scan-hint">Aproxime o código de barras do quadro</div>
-      <div id="scanFallback">
-        <div class="ico">📷</div>
-        <p id="fallbackMsg">Câmera indisponível. Use o teclado para digitar o código do produto.</p>
-        <div class="row">
-          <button class="btn btn-primary" id="manualBtn2">Digitar código</button>
-          <button class="btn btn-ghost" id="retryCam">Tentar câmera</button>
-        </div>
+    <div class="searchbar">
+      <div class="searchbox">
+        <span class="searchicon" aria-hidden="true">🔍</span>
+        <input id="prodSearch2" class="searchinput" type="search" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Buscar produto por nome ou código" />
+        <button class="searchclear" id="searchClear" type="button" aria-label="Limpar busca" style="display:none">✕</button>
       </div>
+      <button class="iconbtn" id="openScanBtn" title="Ler código de barras" aria-label="Ler código de barras">📷</button>
     </div>
 
     <div id="statusStrip" role="status" aria-live="polite"><span class="dot"></span><span id="statusText">Pronto para ler</span></div>
 
     <div class="cart" id="cartScroll">
+      <div id="searchResults" class="search-results" style="display:none"></div>
       <div class="cart-empty" id="cartEmpty">
         <div class="ico">🛒</div>
-        <p>Nenhum item na venda. Leia um produto para começar.</p>
+        <p>Nenhum item na venda. Busque ou leia um produto para começar.</p>
       </div>
       <div id="cartList"></div>
     </div>
@@ -220,6 +216,30 @@
       </div>
     </div>
   </section>
+
+  <!-- ============ LEITOR DE CÓDIGO DE BARRAS (opção secundária) ============ -->
+  <div class="modal" id="scanModal" role="dialog" aria-modal="true" aria-labelledby="scanTitle">
+    <div class="sheet scan-sheet">
+      <h3 id="scanTitle">Ler código de barras</h3>
+      <p class="sub">Aponte a câmera para o código do produto.</p>
+      <div class="scanwrap">
+        <div id="reader"></div>
+        <div class="reticle"><div class="frame"></div><div class="laser"></div></div>
+        <div class="scan-hint">Aproxime o código de barras do quadro</div>
+        <div id="scanFallback">
+          <div class="ico">📷</div>
+          <p id="fallbackMsg">Câmera indisponível. Use o teclado para digitar o código do produto.</p>
+          <div class="row">
+            <button class="btn btn-primary" id="manualBtn2">Digitar código</button>
+            <button class="btn btn-ghost" id="retryCam">Tentar câmera</button>
+          </div>
+        </div>
+      </div>
+      <div class="mactions">
+        <button class="btn btn-ghost" id="scanClose">Fechar</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ============ TECLADO MANUAL ============ -->
   <div class="modal" id="manualModal" role="dialog" aria-modal="true" aria-labelledby="manualTitle">
@@ -368,6 +388,7 @@
 <script src="./js/auth.js"></script>
 <script src="./js/scanner.js"></script>
 <script src="./js/sale.js"></script>
+<script src="./js/search.js"></script>
 <script src="./js/backup.js"></script>
 <script src="./js/manager.js"></script>
 <script src="./js/users.js"></script>

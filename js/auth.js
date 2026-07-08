@@ -17,7 +17,8 @@ function enterApp(found){
     $("opName").innerHTML = escapeHtml(found.name||"Caixa")+"<small>Operador</small>";
     $("restockBtn").style.display = canAddStock(found) ? "" : "none";
     clearCart();
-    show("operador"); startScanner();
+    resetSearch();
+    show("operador");
   }
 }
 
@@ -78,9 +79,11 @@ async function restoreSession(){
 }
 
 function logout(){
+  $("scanModal").classList.remove("show");
   stopScanner();
   state.user=null; state.cart=[];
   saveSession();
+  resetSearch();
   $("loginUser").value=""; $("loginPass").value="";
   show("login");
 }

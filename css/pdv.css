@@ -112,8 +112,42 @@
   /* ============================================================
      CAIXA (operador)
      ============================================================ */
+
+  /* busca de produtos — opção principal de adicionar itens ao carrinho */
+  .searchbar{flex:0 0 auto;display:flex;gap:8px;align-items:center;
+    padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--line)}
+  .searchbox{flex:1;min-width:0;display:flex;align-items:center;gap:8px;height:46px;
+    border:1.5px solid var(--line);border-radius:13px;padding:0 12px;background:var(--bg)}
+  .searchbox:focus-within{border-color:var(--brand);background:#fff}
+  .searchicon{font-size:15px;opacity:.6;flex:0 0 auto}
+  .searchinput{flex:1;min-width:0;height:100%;background:none;border:none;color:var(--ink);
+    -webkit-user-select:text;user-select:text}
+  .searchinput::placeholder{color:var(--muted)}
+  .searchinput:focus{outline:none}
+  .searchclear{flex:0 0 auto;width:26px;height:26px;border-radius:50%;background:var(--line);
+    color:var(--muted);font-size:12px;display:grid;place-items:center}
+
+  /* lista de resultados da busca — reaproveita o espaço do carrinho */
+  .search-results{padding-top:2px}
+  .search-item{
+    display:flex;align-items:center;gap:10px;width:100%;background:var(--surface);
+    border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:8px;text-align:left;
+  }
+  .search-item:active{background:var(--bg)}
+  .search-item.out{opacity:.5}
+  .si-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+  .si-name{font-weight:700;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .si-meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+  .si-price{font-family:var(--mono);font-weight:700;color:var(--ink)}
+  .si-add{flex:0 0 auto;width:32px;height:32px;border-radius:10px;background:var(--brand);color:#fff;
+    font-size:18px;font-weight:700;display:grid;place-items:center;line-height:1}
+  .search-item.out .si-add{background:var(--line);color:var(--muted)}
+  .search-item.out .si-stock{color:var(--bad)}
+
+  /* leitor de código de barras (modal — opção secundária) */
+  .scan-sheet .mactions .btn{flex:1}
   .scanwrap{
-    position:relative;flex:0 0 42vh;min-height:240px;background:#0B0E13;overflow:hidden;
+    position:relative;height:38vh;min-height:220px;background:#0B0E13;overflow:hidden;border-radius:18px;
   }
   #reader{position:absolute;inset:0}
   #reader video{width:100%!important;height:100%!important;object-fit:cover!important}
