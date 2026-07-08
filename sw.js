@@ -2,7 +2,7 @@
    Estratégia: cache-first com atualização em segundo plano
    (stale-while-revalidate). Permite abrir e operar o app offline
    depois da primeira visita, sem servir HTML velho para sempre. */
-const CACHE = "pdv-cache-v19";
+const CACHE = "pdv-cache-v20";
 const ASSETS = [
   "./",
   "./index.html",
