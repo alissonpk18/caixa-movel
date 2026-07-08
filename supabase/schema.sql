@@ -315,6 +315,114 @@ $$;
 grant execute on function public.login_operator(text, text) to anon, authenticated;
 
 -- ---------------------------------------------------------------------
+-- Papel do login vinculado a ESTE aparelho (via device_links -> mesmo
+-- username gravado por login_operator) — só para as RPCs de gerência
+-- abaixo saberem se quem está chamando é 'gerente' antes de deixar
+-- mexer em operators. Não confundir com is_admin(): aquela é o admin da
+-- PLATAFORMA (tabela admins), sem relação com o `role` de operators.
+-- ---------------------------------------------------------------------
+create or replace function public.my_operator_role()
+returns text
+language sql stable security definer
+set search_path = public
+as $$
+  select o.role
+    from public.device_links dl
+    join public.operators o on o.username = dl.username
+    where dl.auth_uid = auth.uid()
+$$;
+
+-- ---------------------------------------------------------------------
+-- Regra de negócio: só o admin da plataforma cria/edita/remove contas de
+-- GERENTE (e é quem grava a qual empresa cada gerente pertence — veja
+-- addUser() em js/admin.js, que insere direto na tabela com o store_id
+-- da empresa aberta no console). O gerente, por sua vez, é restrito à
+-- própria empresa: só pode cadastrar e gerenciar os CAIXAS dela, direto
+-- pelo app (tela de gerência), sem depender do console admin.
+--
+-- Como a única policy de escrita em `operators` é "admin manages
+-- operators" (exige is_admin()), estas três RPCs — rodando com
+-- privilégio elevado (security definer) — são o único jeito de um
+-- gerente escrever aqui. Cada uma:
+--   1) confere que quem chama é de fato 'gerente' (my_operator_role());
+--   2) usa my_store_id() para achar a empresa do gerente — NUNCA aceita
+--      store_id vindo do cliente, então o caixa criado HERDA a empresa
+--      automaticamente, sem chance de um gerente cadastrar alguém fora
+--      da própria empresa;
+--   3) trava role='operador' (nunca 'gerente') tanto para criar quanto
+--      para editar/excluir — um gerente não consegue promover ninguém a
+--      gerente nem mexer na conta de outro gerente por aqui.
+-- ---------------------------------------------------------------------
+create or replace function public.manager_create_cashier(
+  p_username text, p_name text, p_pass_hash text, p_can_add_stock boolean default false
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_store uuid := public.my_store_id();
+begin
+  if v_store is null or public.my_operator_role() is distinct from 'gerente' then
+    raise exception 'apenas gerentes podem cadastrar caixas';
+  end if;
+  if p_username is null or p_username !~ '^[a-z0-9._-]{2,20}$' then
+    raise exception 'login inválido';
+  end if;
+  if p_pass_hash is null or length(p_pass_hash) < 32 then
+    raise exception 'senha inválida';
+  end if;
+
+  insert into public.operators (username, store_id, name, role, can_add_stock, pass_hash)
+  values (lower(p_username), v_store, coalesce(nullif(p_name, ''), p_username), 'operador',
+          coalesce(p_can_add_stock, false), p_pass_hash);
+end;
+$$;
+grant execute on function public.manager_create_cashier(text, text, text, boolean) to authenticated;
+
+create or replace function public.manager_set_cashier_stock(p_username text, p_allow boolean)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_store uuid := public.my_store_id();
+begin
+  if v_store is null or public.my_operator_role() is distinct from 'gerente' then
+    raise exception 'apenas gerentes podem gerenciar caixas';
+  end if;
+  update public.operators
+    set can_add_stock = coalesce(p_allow, false)
+    where username = lower(p_username) and store_id = v_store and role <> 'gerente';
+  if not found then
+    raise exception 'caixa não encontrado nesta empresa';
+  end if;
+end;
+$$;
+grant execute on function public.manager_set_cashier_stock(text, boolean) to authenticated;
+
+create or replace function public.manager_delete_cashier(p_username text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare v_store uuid := public.my_store_id();
+begin
+  if v_store is null or public.my_operator_role() is distinct from 'gerente' then
+    raise exception 'apenas gerentes podem gerenciar caixas';
+  end if;
+  delete from public.operators
+    where username = lower(p_username) and store_id = v_store and role <> 'gerente';
+  if not found then
+    raise exception 'caixa não encontrado nesta empresa';
+  end if;
+end;
+$$;
+grant execute on function public.manager_delete_cashier(text) to authenticated;
+
+-- ---------------------------------------------------------------------
 -- Proteção do estoque (achado A-02 do relatório de arquitetura): a
 -- quantidade só muda por uma destas três RPCs — nunca por um upsert
 -- absoluto qualquer, que a partir de agora só carrega nome/preço/custo/

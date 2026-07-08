@@ -186,22 +186,19 @@
       <!-- USUÁRIOS -->
       <div class="panel" id="panelUsuarios">
         <div class="addbox">
-          <div class="sectitle" style="margin-top:0">Cadastrar usuário</div>
+          <div class="sectitle" style="margin-top:0">Cadastrar caixa</div>
+          <p style="margin:0 0 10px;font-size:12.5px;color:var(--muted)">Contas de gerência são cadastradas pelo administrador da plataforma.</p>
           <div class="grid">
             <input class="full" id="nu_name" type="text" placeholder="Nome (ex: Caixa 2)" />
             <input id="nu_user" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="Usuário (login)" />
             <input id="nu_pass" type="text" autocomplete="off" placeholder="Senha" />
-            <select id="nu_role" class="full" aria-label="Perfil do usuário">
-              <option value="operador">Caixa (operador)</option>
-              <option value="gerente">Gerência</option>
-            </select>
           </div>
           <label class="permline" id="nu_permLine">
             <input type="checkbox" id="nu_stock" />
             <span>Pode adicionar itens ao estoque</span>
           </label>
           <div class="err" id="nu_err"></div>
-          <button class="btn btn-primary" id="addUserBtn" style="margin-top:10px">Cadastrar usuário</button>
+          <button class="btn btn-primary" id="addUserBtn" style="margin-top:10px">Cadastrar caixa</button>
         </div>
 
         <div class="sectitle">Usuários cadastrados</div>
