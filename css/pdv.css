@@ -368,7 +368,13 @@
   .urow .urole{display:inline-block;font-family:var(--sans);font-weight:700;font-size:10.5px;letter-spacing:.4px;
     text-transform:uppercase;padding:2px 8px;border-radius:999px;background:var(--bg);color:var(--muted);margin-left:6px}
   .urow .urole.ger{background:#E7ECFF;color:var(--brand)}
+  .urow .urole.off{background:var(--bad-bg);color:var(--bad)}
   .urow .unote{margin-top:10px;font-size:12px;color:var(--muted);font-weight:600}
+  .urow .uempresa{width:100%;height:40px;border:1.5px solid var(--line);border-radius:10px;padding:0 10px;
+    font-size:13px;background:#fff;margin-top:10px}
+  .urow .uempresa:focus{outline:none;border-color:var(--brand)}
+  .urow-actions{display:flex;gap:8px;margin-top:10px}
+  .urow-actions .btn{flex:1;width:auto;min-height:38px;font-size:12.5px;padding:0 10px}
 
   /* campos genéricos dentro de uma sheet (modal de restock) */
   .sheet .fld{width:100%;height:var(--tap);border:1.5px solid var(--line);border-radius:14px;padding:0 16px;

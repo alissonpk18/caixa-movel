@@ -36,6 +36,7 @@ function importBackup(file){
         DB.cash=cash||{open:null,history:[]};
         applySettings(data.settings);
         ensureManagerAccess();
+        ensureAdminAccess();
         saveUsers(); saveProducts(); saveSales(); saveCash(); saveSettings();
         // restauração é uma correção absoluta de cada quantidade (ver js/cloud.js)
         if(typeof cloudEnqueueStockSet==="function") products.forEach(p=>cloudEnqueueStockSet(p.code, p.qty));

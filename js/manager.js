@@ -184,7 +184,7 @@ async function reloadFromStorage(){
     if(p) DB.products=p;
     if(s) DB.sales=s;
     if(c) DB.cash=c;
-    if(u && u.length){ DB.users=u; ensureManagerAccess(); }
+    if(u && u.length){ DB.users=u; ensureManagerAccess(); ensureAdminAccess(); }
   }
   if($("gerente").classList.contains("is-active")) renderManager();
   // se um operador está logado, mantém o botão de estoque coerente com a permissão atual

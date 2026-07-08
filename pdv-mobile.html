@@ -105,6 +105,32 @@
     </div>
   </section>
 
+  <!-- ============ ADMINISTRADOR GLOBAL ============ -->
+  <section class="screen" id="admin">
+    <div class="topbar">
+      <div class="who" id="admName">Administrador<small>Gerências e empresas</small></div>
+      <div class="grow"></div>
+      <button class="iconbtn" id="logoutAdmin">Sair</button>
+    </div>
+
+    <div class="mscroll">
+      <div class="addbox">
+        <div class="sectitle" style="margin-top:0">Cadastrar gerência</div>
+        <div class="grid">
+          <input class="full" id="ng_name" type="text" placeholder="Nome do responsável" />
+          <input id="ng_user" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="Usuário (login)" />
+          <input id="ng_pass" type="text" autocomplete="off" placeholder="Senha" />
+          <input class="full" id="ng_empresa" type="text" placeholder="Empresa (ex: Loja Centro)" />
+        </div>
+        <div class="err" id="ng_err"></div>
+        <button class="btn btn-primary" id="addManagerBtn" style="margin-top:10px">Cadastrar gerência</button>
+      </div>
+
+      <div class="sectitle">Gerências cadastradas</div>
+      <div id="managerList"></div>
+    </div>
+  </section>
+
   <!-- ============ GERÊNCIA ============ -->
   <section class="screen" id="gerente">
     <div class="topbar">
@@ -186,25 +212,21 @@
       <!-- USUÁRIOS -->
       <div class="panel" id="panelUsuarios">
         <div class="addbox">
-          <div class="sectitle" style="margin-top:0">Cadastrar usuário</div>
+          <div class="sectitle" style="margin-top:0">Cadastrar caixa</div>
           <div class="grid">
             <input class="full" id="nu_name" type="text" placeholder="Nome (ex: Caixa 2)" />
             <input id="nu_user" type="text" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="Usuário (login)" />
             <input id="nu_pass" type="text" autocomplete="off" placeholder="Senha" />
-            <select id="nu_role" class="full" aria-label="Perfil do usuário">
-              <option value="operador">Caixa (operador)</option>
-              <option value="gerente">Gerência</option>
-            </select>
           </div>
-          <label class="permline" id="nu_permLine">
+          <label class="permline">
             <input type="checkbox" id="nu_stock" />
             <span>Pode adicionar itens ao estoque</span>
           </label>
           <div class="err" id="nu_err"></div>
-          <button class="btn btn-primary" id="addUserBtn" style="margin-top:10px">Cadastrar usuário</button>
+          <button class="btn btn-primary" id="addUserBtn" style="margin-top:10px">Cadastrar caixa</button>
         </div>
 
-        <div class="sectitle">Usuários cadastrados</div>
+        <div class="sectitle">Caixas cadastrados</div>
         <div id="userList"></div>
 
         <div class="addbox" style="margin-top:20px">
@@ -371,6 +393,7 @@
 <script src="./js/backup.js"></script>
 <script src="./js/manager.js"></script>
 <script src="./js/users.js"></script>
+<script src="./js/global-admin.js"></script>
 <script src="./js/cashbox.js"></script>
 <script src="./js/modals.js"></script>
 <script src="./js/cloud.js"></script>

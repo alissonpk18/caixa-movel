@@ -94,15 +94,28 @@ test("sanitizeUsers: dedup, papéis coagidos, credencial obrigatória", () => {
   const out = PDV.sanitizeUsers([
     { username: " Ana ", password: "1234", role: "chefe", name: "" },
     { username: "ana", password: "outra" },              // duplicata (case/trim)
-    { username: "bia", passHash: "ff00", role: "gerente", canAddStock: "sim" },
+    { username: "bia", passHash: "ff00", role: "gerente", canAddStock: "sim", empresa: " Empresa A " },
     { username: "semcred" },                              // sem senha nem hash
     null, "x", 42
   ]);
   assert.equal(out.length, 2);
-  assert.deepEqual(out[0], { username: "ana", role: "operador", name: "ana", canAddStock: false, password: "1234" });
+  assert.deepEqual(out[0], { username: "ana", role: "operador", name: "ana", canAddStock: false, empresa: null, active: true, password: "1234" });
   assert.equal(out[1].passHash, "ff00");
   assert.equal(out[1].role, "gerente");
   assert.equal(out[1].canAddStock, false); // "sim" não é true
+  assert.equal(out[1].empresa, "Empresa A"); // trim aplicado
+});
+
+test("sanitizeUsers: papel admin é global (empresa nula) e active default true", () => {
+  const out = PDV.sanitizeUsers([
+    { username: "root", password: "x", role: "admin", empresa: "Empresa A" },
+    { username: "ger", password: "x", role: "gerente", empresa: "Empresa B", active: false }
+  ]);
+  assert.equal(out[0].role, "admin");
+  assert.equal(out[0].empresa, null); // admin não tem tenant, mesmo se vier no dado bruto
+  assert.equal(out[0].active, true);
+  assert.equal(out[1].empresa, "Empresa B");
+  assert.equal(out[1].active, false);
 });
 
 test("sanitizeProducts: inválidos caem, tetos aplicados, custo opcional", () => {

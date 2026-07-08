@@ -13,12 +13,17 @@ let salesFilter = todayKey();   // chave de data selecionada; null = todas
 let prodQuery = "";
 let state = { user:null, cart:[], muted:false, scanner:null, native:null, scanReady:false, scanStarting:false, scanStopping:null, lastScan:{code:"",t:0}, audio:null, pay:{method:"dinheiro"}, lastSale:null };
 
+/* administrador global da plataforma: único papel sem vínculo de empresa (empresa:null),
+   responsável por criar/editar/gerenciar o acesso das contas de gerência */
+const SEED_ADMIN = { username:"alissonpk18@gmail.com", password:"Ali@8865", role:"admin", name:"Administrador Global", empresa:null };
 const SEED_USERS = [
-  { username:"gerente", password:"1234", role:"gerente",  name:"Gerência", canAddStock:true },
-  { username:"caixa",   password:"1234", role:"operador", name:"Caixa 1",  canAddStock:false }
+  { username:"gerente", password:"1234", role:"gerente",  name:"Gerência", canAddStock:true,  empresa:"Empresa Demo" },
+  { username:"caixa",   password:"1234", role:"operador", name:"Caixa 1",  canAddStock:false, empresa:"Empresa Demo" }
 ];
 /* a gerência tem acesso total ao estoque; para operadores a permissão é opcional */
 function canAddStock(user){ return !!user && (user.role==="gerente" || user.canAddStock===true); }
+/* usuários da mesma empresa (tenant) de um gerente/caixa — isola a listagem/gestão por loja */
+function companyUsers(empresa){ return DB.users.filter(u=>u.empresa===empresa); }
 const SEED_PRODUCTS = [
   { code:"7891000100103", name:"Leite Integral 1L",     price:5.49,  qty:40, exp:"2026-07-12" },
   { code:"7894900011517", name:"Refrigerante Cola 2L",  price:8.99,  qty:24, exp:"2027-01-15" },
@@ -61,6 +66,12 @@ function ensureManagerAccess(){
   DB.users.push({...SEED_USERS[0]});
   saveUsers();
 }
+/* garante que sempre exista ao menos um administrador global (só ele cria/gerencia gerências) */
+function ensureAdminAccess(){
+  if(DB.users.some(u=>u.role==="admin")) return;
+  DB.users.push({...SEED_ADMIN});
+  saveUsers();
+}
 /* cada gravação local também avisa a nuvem (no-op quando não configurada) */
 const dirty = (k) => { if(typeof cloudMarkDirty==="function") cloudMarkDirty(k); };
 const saveProducts = () => { dirty("products"); return sset("pdv:products", DB.products); };
@@ -88,10 +99,11 @@ async function boot(){
   if(!Array.isArray(DB.sales)){ DB.sales = []; await saveSales(); }
   if(!cloud){
     /* modo 100% local: preserva o comportamento original — semeia
-       usuários/estoque de demonstração e garante sempre um gerente */
-    if(!Array.isArray(DB.users)   || !DB.users.length){ DB.users = SEED_USERS.map(u=>({...u})); await saveUsers(); }
+       usuários/estoque de demonstração e garante sempre um admin e um gerente */
+    if(!Array.isArray(DB.users)   || !DB.users.length){ DB.users = [{...SEED_ADMIN}, ...SEED_USERS.map(u=>({...u}))]; await saveUsers(); }
     if(!Array.isArray(DB.products)){ DB.products = SEED_PRODUCTS.map(p=>({...p})); await saveProducts(); }
     ensureManagerAccess();
+    ensureAdminAccess();
   }else{
     /* modo nuvem: nada de dados de demonstração — o aparelho começa
        "vazio" até um login real rotear e vincular a uma empresa */

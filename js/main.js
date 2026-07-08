@@ -14,6 +14,7 @@ function wire(){
   // sair
   $("logoutOp").addEventListener("click", logout);
   $("logoutGer").addEventListener("click", logout);
+  $("logoutAdmin").addEventListener("click", logout);
 
   // mudo
   $("muteBtn").addEventListener("click", ()=>{
@@ -105,7 +106,6 @@ function wire(){
 
   // gerência: cadastro de usuários e permissões
   $("addUserBtn").addEventListener("click", addUser);
-  $("nu_role").addEventListener("change", syncRolePerm);
   $("nu_pass").addEventListener("keydown", e=>{ if(e.key==="Enter") addUser(); });
   $("userList").addEventListener("change", e=>{
     const cb=e.target.closest("[data-act='togglestock']"); if(!cb) return;
@@ -114,6 +114,21 @@ function wire(){
   $("userList").addEventListener("click", e=>{
     const b=e.target.closest("[data-act='deluser']"); if(!b) return;
     const row=b.closest(".urow"); deleteUser(row.dataset.username);
+  });
+
+  // administrador global: cadastro e gestão de acesso das contas de gerência
+  $("addManagerBtn").addEventListener("click", addManager);
+  $("ng_pass").addEventListener("keydown", e=>{ if(e.key==="Enter") addManager(); });
+  $("managerList").addEventListener("click", e=>{
+    const row=e.target.closest(".urow"); if(!row) return;
+    const username=row.dataset.username;
+    const act=e.target.closest("button") && e.target.closest("button").dataset.act;
+    if(act==="toggleactive") toggleManagerActive(username);
+    else if(act==="delmanager") deleteManager(username);
+  });
+  $("managerList").addEventListener("change", e=>{
+    const inp=e.target.closest("[data-f='empresa']"); if(!inp) return;
+    const row=inp.closest(".urow"); updateManagerCompany(row.dataset.username, inp.value);
   });
 
   // caixa: adicionar ao estoque (operador autorizado)

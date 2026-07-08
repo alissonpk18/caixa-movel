@@ -72,9 +72,13 @@
       if (!username || seen.has(username)) return;
       if (typeof u.password !== "string" && typeof u.passHash !== "string") return;
       seen.add(username);
+      const role = u.role === "admin" ? "admin" : u.role === "gerente" ? "gerente" : "operador";
+      // admin é global (sem empresa); gerente/caixa carregam o vínculo de tenant, quando definido
+      const empresa = role === "admin" ? null : (typeof u.empresa === "string" && u.empresa.trim() ? u.empresa.trim() : null);
       const clean = {
-        username, role: u.role === "gerente" ? "gerente" : "operador",
-        name: String(u.name || username), canAddStock: u.canAddStock === true
+        username, role,
+        name: String(u.name || username), canAddStock: u.canAddStock === true,
+        empresa, active: u.active !== false
       };
       if (typeof u.passHash === "string" && u.passHash) clean.passHash = u.passHash;
       else clean.password = u.password;

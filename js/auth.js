@@ -10,7 +10,10 @@ function enterApp(found){
   state.user=found;
   initAudio();
   saveSession();
-  if(found.role==="gerente"){
+  if(found.role==="admin"){
+    $("admName").innerHTML = "Administrador<small>"+escapeHtml(found.name||"")+"</small>";
+    show("admin"); renderAdmin();
+  }else if(found.role==="gerente"){
     $("gerName").innerHTML = "Gerência<small>"+escapeHtml(found.name||"")+"</small>";
     show("gerente"); renderManager();
   }else{
@@ -58,6 +61,7 @@ async function login(){
       ok = found ? await verifyPassword(found,p) : false;
     }
     if(!ok){ $("loginErr").textContent="Usuário ou senha incorretos."; beep("bad"); return; }
+    if(found.active===false){ $("loginErr").textContent="Acesso desativado. Fale com o administrador."; beep("bad"); return; }
     if(!found.passHash){
       const h=await hashPassword(p);
       if(h){ found.passHash=h; delete found.password; saveUsers(); }
@@ -72,7 +76,7 @@ async function restoreSession(){
   const sess = await sget("pdv:session");
   if(!sess || !sess.username) return false;
   const found = DB.users.find(x=>x.username===sess.username);
-  if(!found) return false;
+  if(!found || found.active===false) return false;
   enterApp(found);
   return true;
 }
