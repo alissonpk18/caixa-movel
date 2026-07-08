@@ -12,7 +12,7 @@ if(!window.PDV){
 
 /* Versão do app — mantenha em sincronia com CACHE do sw.js.
    Aparece no canto inferior direito para confirmar visualmente a atualização. */
-const APP_VERSION = "v22";
+const APP_VERSION = "v23";
 
 /* ---------- helpers ---------- */
 const $ = (id) => document.getElementById(id);
