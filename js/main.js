@@ -282,7 +282,12 @@ function switchTab(which){
 /* ---------- service worker (PWA: instalável e offline) ---------- */
 if("serviceWorker" in navigator && location.protocol.indexOf("http")===0){
   window.addEventListener("load", ()=>{
-    navigator.serviceWorker.register("./sw.js").then(reg=>{
+    // "?v=" na URL do registro: o GitHub Pages não deixa marcar sw.js como
+    // "sem cache", então o navegador às vezes reaproveita uma cópia em cache
+    // HTTP na checagem de atualização e nunca percebe que o arquivo mudou.
+    // Mudando a URL a cada versão, cada deploy vira uma URL nunca vista
+    // antes — o navegador é obrigado a buscar na rede de verdade.
+    navigator.serviceWorker.register("./sw.js?v="+APP_VERSION).then(reg=>{
       // procura atualização ao abrir e sempre que o app volta ao primeiro plano
       const check = ()=>{ reg.update().catch(()=>{}); };
       check();
