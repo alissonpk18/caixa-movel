@@ -125,9 +125,9 @@
     font-size:16px;font-weight:600;-webkit-user-select:text;user-select:text}
   .searchinput::placeholder{color:var(--muted);font-weight:500}
   .searchinput:focus{outline:none}
-  .searchclear{flex:0 0 auto;width:30px;height:30px;border-radius:50%;background:var(--line);
-    color:var(--muted);font-size:14px;font-weight:700;display:grid;place-items:center}
-  .searchclear:active{background:#D5D9E0}
+  .searchclear{flex:0 0 auto;width:30px;height:30px;border-radius:50%;background:var(--bad-bg);
+    color:var(--bad);font-size:14px;font-weight:800;display:grid;place-items:center}
+  .searchclear:active{background:#F9C7C7}
 
   /* botão da câmera — opção secundária, ao lado da busca, com destaque suficiente pra ser achado */
   .searchscanbtn{flex:0 0 auto;width:var(--tap);height:var(--tap);border-radius:16px;
@@ -352,6 +352,11 @@
   .pay-cash input:focus{outline:none;border-color:var(--brand)}
   .pay-change{margin-top:10px;text-align:right;font-size:14px;color:var(--muted)}
   .pay-change b{font-family:var(--mono);font-size:18px;color:var(--ink)}
+
+  #payCardWrap label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin:0 0 6px 2px}
+  .pay-cardtype{display:flex;gap:8px}
+  .pay-cardtype button{flex:1;min-height:52px;border-radius:12px;background:var(--bg);font-weight:700;font-size:15px;color:var(--muted);border:1.5px solid var(--line)}
+  .pay-cardtype button.active{background:var(--brand);color:#fff;border-color:var(--brand)}
 
   .receipt{background:#fff;border:1px dashed var(--line);border-radius:14px;padding:16px;margin-bottom:14px;
     font-family:var(--mono);font-size:13px;max-height:50vh;overflow-y:auto}
