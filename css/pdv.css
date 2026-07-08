@@ -313,6 +313,48 @@
   .empty-list{text-align:center;color:var(--muted);font-size:13.5px;padding:40px 16px}
 
   /* ============================================================
+     INDICADORES (dashboard gerencial)
+     ============================================================ */
+  .dash-filter{display:flex;gap:8px;margin-bottom:16px}
+  .dash-filter button{flex:1;min-height:42px;border-radius:11px;font-weight:700;font-size:13px;
+    color:var(--muted);background:var(--bg);border:1.5px solid var(--line)}
+  .dash-filter button.active{background:var(--brand);color:#fff;border-color:var(--brand)}
+
+  .dash-kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
+  .dash-section{margin:22px 0}
+  .dash-note{font-size:12.5px;color:var(--muted);font-weight:600;margin:-4px 2px 12px}
+
+  /* barra horizontal única (ranking, pagamento, produtos, dia da semana) */
+  .barlist{display:flex;flex-direction:column;gap:9px}
+  .barrow{display:grid;grid-template-columns:minmax(46px,96px) 1fr auto;align-items:center;gap:10px}
+  .barrow .barlabel{font-size:12.5px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .barrow .bartrack{height:14px;border-radius:999px;background:var(--bg);overflow:hidden}
+  .barrow .barfill{height:100%;border-radius:999px;background:var(--brand)}
+  .barrow.peak .barfill{background:var(--ok)}
+  .barrow.peak .barlabel{color:var(--ok)}
+  .barrow .barval{font-size:12px;font-weight:800;font-family:var(--mono);white-space:nowrap;min-width:64px;text-align:right}
+
+  /* mapa de calor — vendas por hora do dia (24 células, magnitude por 1 único tom) */
+  .heatstrip{display:flex;gap:2px;height:36px}
+  .heatcell{flex:1;border-radius:4px;min-width:2px}
+  .heatcell.peak{box-shadow:0 0 0 2px var(--ok) inset}
+  .heat-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:6px;font-family:var(--mono)}
+
+  /* tendência de faturamento diário (mini gráfico de barras) */
+  .trendchart{display:flex;align-items:flex-end;gap:2px;height:120px;padding:8px 4px 0;
+    background:var(--surface);border:1px solid var(--line);border-radius:14px}
+  .trendchart .bar{flex:1;min-width:2px;background:var(--brand);border-radius:3px 3px 0 0}
+  .trendchart .bar.today{background:var(--ok)}
+  .trend-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:6px;font-family:var(--mono)}
+
+  /* produtos comprados juntos (cesta de compras) */
+  .basket-row{display:flex;justify-content:space-between;align-items:center;gap:10px;
+    background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 14px;margin-bottom:8px}
+  .basket-row .bp-names{font-size:13.5px;font-weight:700}
+  .basket-row .bp-plus{color:var(--muted);font-weight:600}
+  .basket-row .bp-count{font-family:var(--mono);font-weight:800;color:var(--brand);flex:0 0 auto}
+
+  /* ============================================================
      TECLADO MANUAL (modal)
      ============================================================ */
   .modal{position:fixed;inset:0;z-index:50;display:none;align-items:flex-end;justify-content:center;

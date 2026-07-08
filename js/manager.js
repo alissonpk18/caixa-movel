@@ -187,11 +187,14 @@ async function reloadFromStorage(){
     if(u && u.length){ DB.users=u; ensureManagerAccess(); }
   }
   if($("gerente").classList.contains("is-active")) renderManager();
-  // se um operador está logado, mantém o botão de estoque coerente com a permissão atual
-  if(state.user && state.user.role==="operador" && $("operador").classList.contains("is-active")){
+  if($("indicadores").classList.contains("is-active")) renderDashboard();
+  // se alguém está no caixa (operador ou gerência), mantém o botão de estoque coerente com a permissão atual
+  if(state.user && $("operador").classList.contains("is-active")){
     const fresh=DB.users.find(x=>x.username===state.user.username);
     if(!fresh){ toast("Seu acesso foi removido","bad"); logout(); return; }
-    state.user=fresh; $("restockBtn").style.display = canAddStock(fresh) ? "" : "none";
+    state.user=fresh;
+    $("restockBtn").style.display = canAddStock(fresh) ? "" : "none";
+    $("backToGerBtn").style.display = fresh.role==="gerente" ? "" : "none";
   }
 }
 
