@@ -28,6 +28,20 @@ function wire(){
   });
   $("manualBtn2").addEventListener("click", openManual);
 
+  // busca de produtos (opção principal de adicionar itens ao carrinho)
+  $("prodSearch2").addEventListener("input", e=>{ searchQuery=e.target.value; renderSearch(); });
+  $("searchClear").addEventListener("click", ()=>{ searchQuery=""; $("prodSearch2").value=""; renderSearch(); $("prodSearch2").focus(); });
+  $("searchResults").addEventListener("click", e=>{
+    const b=e.target.closest(".search-item"); if(!b || b.disabled) return;
+    addByCode(b.dataset.code);
+    renderSearch(); // atualiza o estoque disponível exibido na lista
+  });
+
+  // leitor de código de barras (opção secundária, aberto sob demanda)
+  $("openScanBtn").addEventListener("click", openScanModal);
+  $("scanClose").addEventListener("click", closeScanModal);
+  $("scanModal").addEventListener("click", e=>{ if(e.target.id==="scanModal") closeScanModal(); });
+
   // carrinho (delegação)
   $("cartList").addEventListener("click", e=>{
     const b=e.target.closest("button"); if(!b) return;
@@ -220,6 +234,7 @@ function wire(){
     if(!manualBuf){ return; }
     addByCode(manualBuf);
     closeManual();
+    closeScanModal();
   });
   $("manualModal").addEventListener("click", e=>{ if(e.target.id==="manualModal") closeManual(); });
 
@@ -232,6 +247,7 @@ function wire(){
   document.addEventListener("keydown", e=>{
     if(e.key!=="Escape") return;
     if($("confirmModal").classList.contains("show")){ closeConfirm(); return; }
+    if($("scanModal").classList.contains("show")){ closeScanModal(); return; }
     ["payModal","receiptModal","manualModal","restockModal","cashModal"].forEach(id=>{ const m=$(id); if(m && m.classList.contains("show")) m.classList.remove("show"); });
   });
 

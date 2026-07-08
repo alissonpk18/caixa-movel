@@ -66,6 +66,25 @@ await page.fill("#loginPass", "1234");
 await page.click("#loginBtn");
 await page.waitForSelector("#operador.is-active", { timeout: 3000 });
 check("login caixa entra na tela do operador", true);
+
+// ---- 3.5 busca de produtos (nova opção principal de adicionar itens) ----
+await page.fill("#prodSearch2", "leite");
+await page.waitForSelector(".search-item");
+const searchText = await page.textContent("#searchResults");
+check("busca encontra produto por nome", searchText.includes("Leite Integral"));
+check("busca mostra preço e estoque do produto", searchText.includes("5,49") && searchText.includes("em estoque"));
+await page.click(".search-item");
+await page.waitForTimeout(150);
+const totalAfterSearch = await page.textContent("#cartTotal");
+check("adicionar via busca soma R$ 5,49 ao carrinho", totalAfterSearch.includes("5,49"), totalAfterSearch);
+// limpa a busca e desfaz o item pra não afetar os testes de venda a seguir
+await page.click("#searchClear");
+await page.evaluate(() => removeItem("7891000100103"));
+await page.waitForTimeout(100);
+
+// leitor de código de barras agora é uma opção secundária (modal)
+await page.click("#openScanBtn");
+await page.waitForSelector("#scanModal.show");
 await page.waitForTimeout(600); // câmera falha no headless → fallback
 check("fallback de câmera aparece sem câmera", await page.evaluate(() => document.getElementById("scanFallback").classList.contains("show")));
 
