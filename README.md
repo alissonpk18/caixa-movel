@@ -42,6 +42,19 @@ barras pela câmera, controle de estoque e relatórios de vendas. Funciona como
   cai para memória apenas se nenhum estiver disponível (com aviso na tela).
 - **Sessão persistente** e **sincronização entre abas**.
 
+## Capturas de tela
+
+<p align="center">
+  <img src="divulgacao/img/02-caixa-venda.png" width="230" alt="Caixa com itens no carrinho e total da venda" />
+  <img src="divulgacao/img/03-pagamento-pix.png" width="230" alt="Pagamento Pix com QR Code gerado no aparelho" />
+  <img src="divulgacao/img/06-indicadores.png" width="230" alt="Painel de indicadores da gerência" />
+</p>
+
+Mais telas em [`divulgacao/img/`](divulgacao/img/). Para apresentar o app,
+publique junto a página [`divulgacao/index.html`](divulgacao/index.html)
+(landing page) e use os textos prontos do
+[kit de divulgação](divulgacao/kit-divulgacao.md).
+
 ## Como usar
 
 Abra o `pdv-mobile.html` por um servidor **HTTP(S)** (necessário para câmera,
@@ -153,6 +166,7 @@ primeira visita, o app abre **offline**.
 | `sw.js`                    | Service worker (cache/offline).                |
 | `icon-*.png`               | Ícones do app.                                  |
 | `tests/`                   | Testes unitários (`npm test`) e E2E (Playwright).|
+| `divulgacao/`              | Landing page, kit de divulgação e capturas de tela.|
 
 Os módulos em `js/` são scripts clássicos com escopo global compartilhado,
 carregados em ordem de dependência no fim do `pdv-mobile.html` — a

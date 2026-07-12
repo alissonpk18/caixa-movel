@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PDV · Caixa Rápido — ponto de venda grátis no seu celular</title>
+<meta name="description" content="Transforme qualquer celular em ponto de venda: leitor de código de barras pela câmera, Pix com QR Code sem taxas, controle de estoque e relatórios. Grátis, sem mensalidade e funciona offline." />
+<meta property="og:title" content="PDV · Caixa Rápido — seu caixa no celular" />
+<meta property="og:description" content="PDV grátis que roda no navegador: código de barras pela câmera, Pix sem taxas, estoque e relatórios. Funciona offline." />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="img/03-pagamento-pix.png" />
+<link rel="icon" href="../icon-192.png" />
+<style>
+  :root{
+    --ink:#14181F; --muted:#6B7280; --bg:#EEF0F3; --surface:#FFFFFF;
+    --line:#E2E5EA; --brand:#2D4ED8; --brand-press:#2440B5;
+    --ok:#15A34A; --ok-bg:#DCFCE7; --warn-bg:#FEF3C7;
+    --radius:16px;
+    --shadow:0 1px 2px rgba(20,24,31,.06), 0 8px 24px rgba(20,24,31,.08);
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:var(--sans);background:var(--bg);color:var(--ink);line-height:1.55;-webkit-font-smoothing:antialiased}
+  img{max-width:100%;display:block}
+  a{color:inherit}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+
+  /* ---------- hero ---------- */
+  .hero{background:var(--ink);color:#fff;padding:56px 0 72px;position:relative;overflow:hidden}
+  .hero .wrap{display:flex;gap:40px;align-items:center;flex-wrap:wrap}
+  .hero-txt{flex:1 1 340px;min-width:0}
+  .badge{display:inline-block;background:rgba(45,78,216,.25);border:1px solid rgba(122,146,255,.5);color:#B9C6FF;font-size:13px;font-weight:700;padding:5px 12px;border-radius:999px;margin-bottom:18px}
+  h1{font-size:clamp(30px,5.5vw,46px);line-height:1.12;letter-spacing:-.5px;margin-bottom:16px}
+  h1 em{font-style:normal;color:#8FA3FF}
+  .hero p.sub{font-size:clamp(16px,2.4vw,19px);color:#C7CBD4;max-width:34em;margin-bottom:28px}
+  .cta-row{display:flex;gap:12px;flex-wrap:wrap}
+  .btn{display:inline-block;font-weight:800;font-size:16px;padding:15px 26px;border-radius:14px;text-decoration:none;transition:transform .08s ease}
+  .btn:active{transform:scale(.98)}
+  .btn-primary{background:var(--brand);color:#fff}
+  .btn-primary:hover{background:var(--brand-press)}
+  .btn-ghost{background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.25)}
+  .hero-demo{font-size:13px;color:#9AA1AD;margin-top:14px}
+  .hero-demo b{color:#E5E8EE}
+  .hero-shot{flex:0 1 300px;margin:0 auto}
+  .phone{border-radius:28px;border:6px solid #2A2F3A;box-shadow:0 24px 60px rgba(0,0,0,.45);overflow:hidden;background:#000}
+
+  /* ---------- seções ---------- */
+  section{padding:64px 0}
+  .kicker{color:var(--brand);font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px}
+  h2{font-size:clamp(24px,4vw,34px);letter-spacing:-.4px;margin-bottom:10px}
+  .lead{color:var(--muted);font-size:17px;max-width:42em;margin-bottom:36px}
+
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px}
+  .card .ico{font-size:26px;margin-bottom:10px}
+  .card h3{font-size:16.5px;margin-bottom:6px}
+  .card p{font-size:14.5px;color:var(--muted)}
+
+  /* ---------- capturas ---------- */
+  .shots{background:var(--surface);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .strip{display:flex;gap:18px;overflow-x:auto;padding:8px 4px 20px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
+  .strip figure{flex:0 0 232px;scroll-snap-align:start}
+  .strip img{border-radius:18px;border:1px solid var(--line);box-shadow:var(--shadow)}
+  .strip figcaption{font-size:13px;font-weight:600;color:var(--muted);text-align:center;margin-top:10px}
+
+  /* ---------- passos ---------- */
+  .steps{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));counter-reset:passo}
+  .step{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px;counter-increment:passo}
+  .step::before{content:counter(passo);display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--brand);color:#fff;font-weight:800;margin-bottom:12px}
+  .step h3{font-size:16.5px;margin-bottom:6px}
+  .step p{font-size:14.5px;color:var(--muted)}
+
+  /* ---------- destaque pix ---------- */
+  .pix{background:var(--ok-bg)}
+  .pix .wrap{display:flex;gap:36px;align-items:center;flex-wrap:wrap}
+  .pix-txt{flex:1 1 320px}
+  .pix h2{color:#14532D}
+  .pix ul{list-style:none;margin-top:18px}
+  .pix li{padding-left:30px;position:relative;margin-bottom:12px;font-size:15.5px}
+  .pix li::before{content:"✓";position:absolute;left:0;top:0;width:22px;height:22px;border-radius:7px;background:var(--ok);color:#fff;font-size:13px;font-weight:800;display:grid;place-items:center}
+  .pix-shot{flex:0 1 260px;margin:0 auto}
+
+  /* ---------- faq ---------- */
+  details{background:var(--surface);border-radius:14px;box-shadow:var(--shadow);padding:16px 20px;margin-bottom:10px}
+  summary{font-weight:700;cursor:pointer;font-size:15.5px}
+  details p{color:var(--muted);font-size:14.5px;margin-top:10px}
+
+  /* ---------- cta final / footer ---------- */
+  .final{background:var(--ink);color:#fff;text-align:center}
+  .final h2{margin-bottom:14px}
+  .final p{color:#C7CBD4;margin-bottom:26px}
+  footer{background:var(--ink);color:#9AA1AD;font-size:13.5px;text-align:center;padding:26px 20px;border-top:1px solid rgba(255,255,255,.08)}
+  footer a{color:#B9C6FF}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="hero-txt">
+      <span class="badge">Grátis · Sem mensalidade · Código aberto</span>
+      <h1>Seu caixa no celular, <em>pronto em 1 minuto</em></h1>
+      <p class="sub">O PDV · Caixa Rápido transforma qualquer celular em ponto de venda:
+        a câmera lê o código de barras, o Pix sai com QR Code na hora e o estoque
+        se controla sozinho. Funciona até sem internet.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="../pdv-mobile.html">Testar agora</a>
+        <a class="btn btn-ghost" href="https://github.com/alissonpk18/caixa-movel">Ver no GitHub</a>
+      </div>
+      <p class="hero-demo">Demonstração — gerência: <b>gerente / 1234</b> · caixa: <b>caixa / 1234</b></p>
+    </div>
+    <div class="hero-shot">
+      <div class="phone"><img src="img/02-caixa-venda.png" alt="Tela do caixa com produtos no carrinho e total da venda" width="390" height="844" /></div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">Por que usar</p>
+    <h2>Tudo que um PDV caro faz — de graça, no navegador</h2>
+    <p class="lead">Feito para mercadinhos, lanchonetes, feiras, food trucks e lojas de
+      bairro que não querem pagar mensalidade de sistema.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">📷</div><h3>Código de barras pela câmera</h3><p>Aponte e pronto: o produto cai no carrinho. Aceita também leitor físico USB/Bluetooth e digitação manual.</p></div>
+      <div class="card"><div class="ico">💰</div><h3>Pix sem taxas</h3><p>QR Code e "copia e cola" gerados no próprio aparelho com o valor da venda, direto para a sua chave.</p></div>
+      <div class="card"><div class="ico">📦</div><h3>Estoque que se cuida</h3><p>Baixa automática a cada venda, alerta de estoque baixo e estimativa de "estoque para X dias".</p></div>
+      <div class="card"><div class="ico">⏰</div><h3>Controle de validade</h3><p>Cadastre a validade e o app destaca o que venceu e o que está para vencer, com antecedência configurável.</p></div>
+      <div class="card"><div class="ico">🧾</div><h3>Caixa de verdade</h3><p>Abertura com fundo de troco, sangria, reforço e fechamento com conferência do dinheiro da gaveta.</p></div>
+      <div class="card"><div class="ico">📊</div><h3>Relatórios de dono</h3><p>Faturamento, ticket médio, curva ABC com lucro por produto, melhores horários e exportação em CSV.</p></div>
+      <div class="card"><div class="ico">👥</div><h3>Perfis e permissões</h3><p>Contas separadas para caixa e gerência; o operador só vê o que precisa para vender.</p></div>
+      <div class="card"><div class="ico">📴</div><h3>Funciona offline</h3><p>Instala como aplicativo (PWA) e continua vendendo mesmo quando a internet cai.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="shots">
+  <div class="wrap">
+    <p class="kicker">O app por dentro</p>
+    <h2>Telas reais, direto do aparelho</h2>
+    <p class="lead">Arraste para o lado para ver o fluxo completo de uma venda.</p>
+    <div class="strip">
+      <figure><img src="img/01-login.png" alt="Tela de login com perfis de operador e gerência" loading="lazy" /><figcaption>Entrada por perfil</figcaption></figure>
+      <figure><img src="img/02-caixa-venda.png" alt="Caixa com itens no carrinho e total" loading="lazy" /><figcaption>Venda no caixa</figcaption></figure>
+      <figure><img src="img/03-pagamento-pix.png" alt="Pagamento com QR Code Pix gerado na hora" loading="lazy" /><figcaption>Pix com QR na hora</figcaption></figure>
+      <figure><img src="img/05-comprovante.png" alt="Comprovante da venda para compartilhar ou imprimir" loading="lazy" /><figcaption>Comprovante</figcaption></figure>
+      <figure><img src="img/04-gerencia-estoque.png" alt="Gerência de estoque com alerta de validade" loading="lazy" /><figcaption>Estoque e validade</figcaption></figure>
+      <figure><img src="img/06-indicadores.png" alt="Painel de indicadores com faturamento e ticket médio" loading="lazy" /><figcaption>Indicadores</figcaption></figure>
+      <figure><img src="img/07-gerencia-vendas.png" alt="Histórico de vendas e curva ABC" loading="lazy" /><figcaption>Vendas e curva ABC</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">Como começar</p>
+    <h2>Do zero à primeira venda em 3 passos</h2>
+    <p class="lead">Não precisa baixar aplicativo, criar conta nem cadastrar cartão.</p>
+    <div class="steps">
+      <div class="step"><h3>Abra o link no celular</h3><p>Entre com o acesso da gerência e use "Adicionar à tela inicial" para instalar como app.</p></div>
+      <div class="step"><h3>Cadastre seus produtos</h3><p>Nome, preço e quantidade — se quiser, custo (para ver a margem) e validade. Dá para importar backup depois.</p></div>
+      <div class="step"><h3>Venda</h3><p>O caixa busca ou escaneia o produto, recebe em dinheiro, cartão ou Pix e o estoque baixa sozinho.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="pix">
+  <div class="wrap">
+    <div class="pix-txt">
+      <p class="kicker" style="color:#15803D">Receba no Pix</p>
+      <h2>QR Code na hora, dinheiro direto na sua conta</h2>
+      <ul>
+        <li>BR Code padrão do Banco Central, com o valor exato da venda</li>
+        <li>Gerado no próprio aparelho: sem intermediário e sem taxa por venda</li>
+        <li>Basta a gerência cadastrar a chave Pix uma única vez</li>
+        <li>Botão "copia e cola" para quem prefere pagar sem escanear</li>
+      </ul>
+    </div>
+    <div class="pix-shot"><div class="phone"><img src="img/03-pagamento-pix.png" alt="Tela de pagamento Pix com QR Code" width="390" height="844" loading="lazy" /></div></div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="kicker">Dúvidas frequentes</p>
+    <h2>Perguntas de quem está chegando</h2>
+    <div style="max-width:720px;margin-top:28px">
+      <details><summary>É grátis mesmo? Qual a pegadinha?</summary><p>É grátis e o código é aberto — qualquer pessoa pode auditar. No modo local não existe servidor, então não há custo escondido nem venda de dados.</p></details>
+      <details><summary>Preciso de internet para vender?</summary><p>Não. Depois da primeira visita o app funciona offline. A internet só é necessária se você ativar a sincronização entre aparelhos.</p></details>
+      <details><summary>Onde ficam meus dados?</summary><p>No seu próprio aparelho. A gerência pode exportar um backup completo em JSON a qualquer momento. Opcionalmente, o modo nuvem (Supabase) sincroniza vários aparelhos da mesma loja.</p></details>
+      <details><summary>O Pix cai na minha conta na hora?</summary><p>Sim — o QR Code é um Pix comum com a sua chave: o pagamento vai direto do cliente para a sua conta, sem intermediário. A confirmação você vê no app do seu banco.</p></details>
+      <details><summary>Emite nota fiscal?</summary><p>Não. O app cuida da operação do caixa e do estoque; a emissão de NFC-e continua com a solução da sua contabilidade.</p></details>
+      <details><summary>Funciona em qualquer celular?</summary><p>Em qualquer celular com navegador atualizado (Chrome, Safari). A câmera exige acesso por HTTPS e a sua permissão.</p></details>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap">
+    <h2>Comece a vender agora</h2>
+    <p>Abra a demonstração, faça uma venda de teste e veja se serve para a sua loja.</p>
+    <div class="cta-row" style="justify-content:center">
+      <a class="btn btn-primary" href="../pdv-mobile.html">Abrir o app</a>
+      <a class="btn btn-ghost" href="https://github.com/alissonpk18/caixa-movel">Código no GitHub</a>
+    </div>
+    <p class="hero-demo">gerência: <b>gerente / 1234</b> · caixa: <b>caixa / 1234</b></p>
+  </div>
+</section>
+
+<footer>
+  PDV · Caixa Rápido — projeto de código aberto ·
+  <a href="https://github.com/alissonpk18/caixa-movel">github.com/alissonpk18/caixa-movel</a>
+</footer>
+
+</body>
+</html>
