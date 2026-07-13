@@ -10,12 +10,43 @@ function openRestock(){
   setTimeout(()=>{ try{ $("rs_code").focus(); }catch(e){} },120);
 }
 function closeRestock(){ $("restockModal").classList.remove("show"); }
+function renderRestockItem(p){
+  return `
+    <button type="button" class="search-item" data-code="${escapeHtml(p.code)}">
+      <span class="si-info">
+        <span class="si-name">${escapeHtml(p.name)}</span>
+        <span class="si-meta">
+          <span class="si-stock">estoque atual: ${p.qty} un${p.exp?" · "+expText(p.exp):""}</span>
+        </span>
+      </span>
+      <span class="si-add" aria-hidden="true">+</span>
+    </button>`;
+}
+function pickRestockProduct(code){
+  $("rs_code").value=code;
+  updateRestockFound();
+  setTimeout(()=>{ try{ $("rs_qty").focus(); }catch(e){} },50);
+}
 function updateRestockFound(){
-  const f=$("rs_found"); const code=$("rs_code").value.trim();
-  if(!code){ f.textContent=""; f.classList.remove("bad"); return; }
-  const p=findProduct(code);
-  if(p){ f.textContent=p.name+" · estoque atual: "+p.qty+" un"+(p.exp?" · "+expText(p.exp):""); f.classList.remove("bad"); }
-  else{ f.textContent="Código não cadastrado"; f.classList.add("bad"); }
+  const f=$("rs_found"), list=$("rs_results"); const q=$("rs_code").value.trim();
+  if(!q){ f.textContent=""; f.classList.remove("bad"); list.style.display="none"; list.innerHTML=""; return; }
+  const p=findProduct(q);
+  if(p){
+    f.textContent=p.name+" · estoque atual: "+p.qty+" un"+(p.exp?" · "+expText(p.exp):"");
+    f.classList.remove("bad");
+    list.style.display="none"; list.innerHTML="";
+    return;
+  }
+  // sem código exato: busca por nome (ou trecho do código) entre os produtos cadastrados
+  const results=searchProducts(q).slice(0,8);
+  if(results.length){
+    f.textContent=""; f.classList.remove("bad");
+    list.innerHTML=results.map(renderRestockItem).join("");
+    list.style.display="block";
+  }else{
+    f.textContent="Nenhum produto encontrado"; f.classList.add("bad");
+    list.style.display="none"; list.innerHTML="";
+  }
 }
 function confirmRestock(){
   const err=$("rs_err");

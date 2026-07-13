@@ -157,6 +157,10 @@ function wire(){
   // caixa: adicionar ao estoque (operador autorizado)
   $("restockBtn").addEventListener("click", openRestock);
   $("rs_code").addEventListener("input", updateRestockFound);
+  $("rs_results").addEventListener("click", e=>{
+    const b=e.target.closest(".search-item"); if(!b) return;
+    pickRestockProduct(b.dataset.code);
+  });
   $("rsClose").addEventListener("click", closeRestock);
   $("rsConfirm").addEventListener("click", confirmRestock);
   $("restockModal").addEventListener("click", e=>{ if(e.target.id==="restockModal") closeRestock(); });
