@@ -336,9 +336,10 @@
   <div class="modal" id="restockModal" role="dialog" aria-modal="true" aria-labelledby="restockTitle">
     <div class="sheet">
       <h3 id="restockTitle">Adicionar ao estoque</h3>
-      <p class="sub">Informe o código do produto e quanto entrar no estoque.</p>
-      <input id="rs_code" class="fld" type="tel" inputmode="numeric" autocomplete="off" placeholder="Código de barras" />
+      <p class="sub">Busque por nome ou código do produto e informe quanto entrar no estoque.</p>
+      <input id="rs_code" class="fld" type="text" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Nome ou código de barras" />
       <div class="found" id="rs_found"></div>
+      <div class="search-results" id="rs_results" style="display:none;max-height:38vh;overflow-y:auto;margin-bottom:10px"></div>
       <input id="rs_qty" class="fld" type="tel" inputmode="numeric" autocomplete="off" placeholder="Quantidade a adicionar" />
       <label for="rs_exp" style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin:0 2px 5px">Validade da entrada (opcional)</label>
       <input id="rs_exp" class="fld" type="date" autocomplete="off" />
