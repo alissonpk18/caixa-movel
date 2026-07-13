@@ -61,12 +61,13 @@
   <section class="screen" id="operador">
     <div class="topbar">
       <div class="who" id="opName">Caixa<small>Operador</small></div>
-      <div class="grow"></div>
-      <button class="iconbtn" id="backToGerBtn" title="Voltar para a gerência" aria-label="Voltar para a gerência" style="display:none">←</button>
-      <button class="iconbtn" id="restockBtn" title="Adicionar ao estoque" style="display:none">+Estoque</button>
-      <button class="iconbtn" id="cashBtn" title="Controle de caixa">Caixa</button>
-      <button class="iconbtn" id="muteBtn" title="Som" aria-label="Ativar ou silenciar o som">🔊</button>
-      <button class="iconbtn" id="logoutOp">Sair</button>
+      <div class="topbar-actions">
+        <button class="iconbtn" id="backToGerBtn" title="Voltar para a gerência" aria-label="Voltar para a gerência" style="display:none">←</button>
+        <button class="iconbtn" id="restockBtn" title="Adicionar ao estoque" style="display:none">+Estoque</button>
+        <button class="iconbtn" id="cashBtn" title="Controle de caixa">Caixa</button>
+        <button class="iconbtn" id="muteBtn" title="Som" aria-label="Ativar ou silenciar o som">🔊</button>
+        <button class="iconbtn" id="logoutOp">Sair</button>
+      </div>
     </div>
     <div id="storageBanner"></div>
 
@@ -106,10 +107,11 @@
   <section class="screen" id="gerente">
     <div class="topbar">
       <div class="who" id="gerName">Gerência<small>Estoque e resumo</small></div>
-      <div class="grow"></div>
-      <button class="iconbtn" id="goCaixaBtn" title="Ir para o caixa">Caixa</button>
-      <button class="iconbtn" id="goDashBtn" title="Indicadores">Indicadores</button>
-      <button class="iconbtn" id="logoutGer">Sair</button>
+      <div class="topbar-actions">
+        <button class="iconbtn" id="goCaixaBtn" title="Ir para o caixa">Caixa</button>
+        <button class="iconbtn" id="goDashBtn" title="Indicadores">Indicadores</button>
+        <button class="iconbtn" id="logoutGer">Sair</button>
+      </div>
     </div>
     <div id="storageBanner2"></div>
 
