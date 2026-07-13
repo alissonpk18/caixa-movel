@@ -55,8 +55,12 @@ function markStorageFailure(){
 
 /* aplica só os campos válidos vindos do storage sobre os padrões atuais */
 function applySettings(st){ Object.assign(settings, sanitizeSettings(st)); }
-/* garante que sempre exista ao menos um acesso de gerência (evita trancar o app) */
+/* garante que sempre exista ao menos um acesso de gerência (evita trancar o app).
+   Só no modo LOCAL: com a nuvem configurada os acessos vêm exclusivamente do
+   console do admin (tabela operators) — semear o gerente de demonstração aqui
+   criaria um login "gerente"/"1234" válido no aparelho sem existir na empresa. */
 function ensureManagerAccess(){
+  if(typeof cloudEnabled==="function" && cloudEnabled()) return;
   if(DB.users.some(u=>u.role==="gerente")) return;
   DB.users.push({...SEED_USERS[0]});
   saveUsers();

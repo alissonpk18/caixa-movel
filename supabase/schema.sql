@@ -33,6 +33,20 @@ create table if not exists public.stores (
   created_at timestamptz not null default now()
 );
 
+-- Migração para bancos criados com o schema v1 — o "create table if not
+-- exists" acima NÃO altera uma tabela que já existe. No v1, `owner` era
+-- `not null default auth.uid() unique` com `on delete cascade`, o que
+-- quebrava o console: a 1ª empresa criada tomava o slot único do owner
+-- (o default preenchia o auth.uid() do admin) e TODA criação seguinte
+-- falhava com "Não foi possível criar" (unique_violation); além disso,
+-- excluir a conta dona apagaria a empresa inteira em cascata. As linhas
+-- abaixo são idempotentes: rodar de novo num banco já migrado não muda nada.
+alter table public.stores alter column owner drop default;
+alter table public.stores alter column owner drop not null;
+alter table public.stores drop constraint if exists stores_owner_fkey;
+alter table public.stores add constraint stores_owner_fkey
+  foreign key (owner) references auth.users(id) on delete set null;
+
 -- ---------------------------------------------------------------------
 -- Administradores da PLATAFORMA (você): enxergam e gerenciam todas as
 -- lojas pelo console admin.html. Para promover uma conta a admin, crie
@@ -44,6 +58,14 @@ create table if not exists public.admins (
   user_id    uuid primary key references auth.users(id) on delete cascade,
   created_at timestamptz not null default now()
 );
+
+-- continuação da migração v1 de `stores` (precisa de `admins`, por isso
+-- vive aqui): desfaz o vínculo indevido que o default antigo criou
+-- ("empresa pertence à conta do admin que a criou") — libera o slot único
+-- do owner e evita que o aparelho do próprio admin seja roteado para essa
+-- empresa por my_store_id(). Idempotente e inócua numa instalação nova.
+update public.stores set owner = null
+  where owner in (select user_id from public.admins);
 
 create or replace function public.is_admin()
 returns boolean

@@ -89,7 +89,16 @@ async function createStore(){
   const err=$("ns_err"); err.textContent="";
   if(!name){ err.textContent="Informe o nome da empresa."; return; }
   const { error } = await sb.from("stores").insert({ name, email });
-  if(error){ err.textContent="Não foi possível criar — tente de novo."; return; }
+  if(error){
+    /* banco criado com o schema v1: `owner` tinha default auth.uid() +
+       unique, então a 1ª empresa toma o slot e as seguintes estouram
+       unique_violation — a correção é rodar o supabase/schema.sql
+       atualizado (ele traz a migração) no SQL Editor do projeto */
+    err.textContent = (error.code==="23505" || /duplicate|unique/i.test(error.message||""))
+      ? "O banco está com o esquema antigo (limitava a 1 empresa). Rode o supabase/schema.sql atualizado no SQL Editor do Supabase e tente de novo."
+      : "Não foi possível criar — tente de novo."+(error.message?" ("+error.message+")":"");
+    return;
+  }
   $("ns_name").value=""; $("ns_email").value="";
   await loadStores();
 }

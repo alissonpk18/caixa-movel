@@ -362,10 +362,34 @@ async function cloudPull(){
     else if(kvMap.cash)   DB.cash = sanitizeCash(kvMap.cash) || DB.cash;
 
     if(kvMap.settings) applySettings(kvMap.settings);
-    ensureManagerAccess();
     await saveProducts(); await saveSales(); await saveUsers(); await saveCash(); await saveSettings();
   }finally{ cloudApplying = false; }
+  cloudReconcileSession();
   cloudRefreshUI();
+}
+
+/* após um pull, o usuário logado NESTE aparelho pode ter sido removido ou
+   ter tido papel/permissão alterados pelo console do admin — reflete isso
+   imediatamente, em vez de deixar uma sessão órfã seguir operando com o
+   acesso antigo até o próximo logout manual. */
+function cloudReconcileSession(){
+  if(!state.user) return;
+  const fresh = DB.users.find(u=>u.username===state.user.username);
+  if(!fresh){
+    try{ logout(); toast("Seu acesso foi removido pela gerência.","bad"); }catch(e){}
+    return;
+  }
+  state.user = fresh;
+  saveSession();
+  try{
+    if($("operador").classList.contains("is-active")){
+      $("restockBtn").style.display = canAddStock(fresh) ? "" : "none";
+      $("backToGerBtn").style.display = fresh.role==="gerente" ? "" : "none";
+    }else if(fresh.role!=="gerente" &&
+             ($("gerente").classList.contains("is-active") || $("indicadores").classList.contains("is-active"))){
+      enterApp(fresh); // papel rebaixado pelo console: sai da gerência
+    }
+  }catch(e){}
 }
 
 function cloudStartLoops(){
