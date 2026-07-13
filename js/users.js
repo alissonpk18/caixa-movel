@@ -2,8 +2,18 @@
 /* ================================================================
    GERÊNCIA — usuários e permissões
    ================================================================ */
+/* com a nuvem configurada, os acessos (gerente/caixa) são geridos
+   EXCLUSIVAMENTE pelo console do admin (tabela operators — o RLS nem
+   deixa o aparelho escrever nela): qualquer edição local nunca subiria
+   e seria desfeita em silêncio pelo pull seguinte. Então o painel do
+   aparelho vira só uma vitrine do que está valendo. */
+function usersManagedByCloud(){ return typeof cloudEnabled==="function" && cloudEnabled(); }
+
 function renderUsers(){
   const el=$("userList"); if(!el) return;
+  const managed = usersManagedByCloud();
+  const box=$("userAddBox");     if(box)  box.style.display  = managed ? "none" : "";
+  const note=$("usersCloudNote"); if(note) note.style.display = managed ? "" : "none";
   if(!DB.users.length){ el.innerHTML='<div class="empty-list">Nenhum usuário cadastrado.</div>'; return; }
   const meUser = state.user ? state.user.username : null;
   const managers = DB.users.filter(u=>u.role==="gerente").length;
@@ -15,14 +25,16 @@ function renderUsers(){
     const roleTag = isGer ? '<span class="urole ger">Gerência</span>' : '<span class="urole">Caixa</span>';
     const perm = isGer
       ? '<div class="unote">Acesso total ao estoque (gerência).</div>'
-      : `<label class="permline"><input type="checkbox" data-act="togglestock" ${u.canAddStock?"checked":""} /> <span>Pode adicionar itens ao estoque</span></label>`;
+      : managed
+        ? `<div class="unote">${u.canAddStock?"Pode adicionar itens ao estoque.":"Sem permissão de reposição de estoque."}</div>`
+        : `<label class="permline"><input type="checkbox" data-act="togglestock" ${u.canAddStock?"checked":""} /> <span>Pode adicionar itens ao estoque</span></label>`;
     return `<div class="urow" data-username="${escapeHtml(u.username)}">
       <div class="utop">
         <div class="uinfo">
           <div class="uname">${escapeHtml(u.name||u.username)}${roleTag}</div>
           <div class="umeta">@${escapeHtml(u.username)}</div>
         </div>
-        <button class="prow-del" data-act="deluser" title="Excluir usuário" ${lockDel?"disabled style=\"opacity:.35;pointer-events:none\"":""}>✕</button>
+        ${managed?"":`<button class="prow-del" data-act="deluser" title="Excluir usuário" ${lockDel?"disabled style=\"opacity:.35;pointer-events:none\"":""}>✕</button>`}
       </div>
       ${perm}
     </div>`;
@@ -39,6 +51,7 @@ async function addUser(){
   if(addUser.busy) return; // evita cadastro duplicado por duplo toque
   addUser.busy=true;
   try{
+    if(usersManagedByCloud()){ $("nu_err").textContent="Os acessos desta empresa são geridos pelo console do administrador."; return; }
     const name=$("nu_name").value.trim();
     const username=$("nu_user").value.trim().toLowerCase();
     const password=$("nu_pass").value;
@@ -65,6 +78,7 @@ async function addUser(){
 }
 
 function toggleUserStock(username,allow){
+  if(usersManagedByCloud()){ toast("Permissões são alteradas pelo console do administrador","bad"); renderUsers(); return; }
   const u=DB.users.find(x=>x.username===username); if(!u||u.role==="gerente") return;
   u.canAddStock=!!allow;
   saveUsers();
@@ -73,6 +87,7 @@ function toggleUserStock(username,allow){
 }
 
 function deleteUser(username){
+  if(usersManagedByCloud()){ toast("Acessos são removidos pelo console do administrador","bad"); return; }
   const u=DB.users.find(x=>x.username===username); if(!u) return;
   if(state.user && u.username===state.user.username){ toast("Você não pode excluir o próprio usuário","bad"); return; }
   if(u.role==="gerente" && DB.users.filter(x=>x.role==="gerente").length<=1){ toast("Mantenha ao menos um usuário de gerência","bad"); return; }

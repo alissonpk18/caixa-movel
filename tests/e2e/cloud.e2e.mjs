@@ -144,8 +144,24 @@ check("os 3 eventos de caixa chegaram na nuvem (abertura + 2 movimentos)", cashE
 const movementsOnA = await pageA.evaluate(() => DB.cash.open.movements.length);
 check("nenhum movimento de caixa se perde na corrida (reforço do A + sangria do B)", movementsOnA === 2, "movimentos=" + movementsOnA);
 
+/* ---- no modo nuvem o painel Usuários do aparelho é somente leitura:
+   quem cadastra/edita/remove acessos é o console do admin — uma edição
+   local nunca subiria (o RLS bloqueia) e seria desfeita em silêncio pelo
+   pull seguinte, o clássico conflito de duas fontes de verdade ---- */
+await pageA.evaluate(() => switchTab("usuarios"));
+check("modo nuvem: cadastro local de usuário fica oculto", await pageA.isHidden("#userAddBox"));
+check("modo nuvem: aviso de gestão pelo console aparece", await pageA.isVisible("#usersCloudNote"));
+check("modo nuvem: lista de usuários sem botões de excluir/permissão",
+  (await pageA.locator("#userList [data-act]").count()) === 0);
+
+/* ---- acesso removido pelo console some do aparelho no próximo sync,
+   deslogando a sessão em vez de deixá-la seguir operando órfã ---- */
+peekFakeDb().operators.splice(peekFakeDb().operators.findIndex(o => o.username === "caixa2"), 1);
+await pageB.evaluate(() => cloudSync());
+await pageB.waitForSelector("#login.is-active", { timeout: 8000 });
+check("acesso removido pelo console desloga o aparelho no sync seguinte", true);
+
 /* ---- credencial errada: sem crash, sem vínculo indevido ---- */
-await pageB.click("#logoutOp");
 await pageB.fill("#loginUser", "donagerente");
 await pageB.fill("#loginPass", "senhaerrada");
 await pageB.click("#loginBtn");
