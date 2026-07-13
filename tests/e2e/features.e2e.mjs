@@ -54,8 +54,10 @@ check("config Pix sem chave é rejeitada", (await page.textContent("#pix_err")).
 await page.fill("#pix_key", "loja@exemplo.com");
 await page.click("#pixSaveBtn");
 
-// ---- 2. gerência: produto com custo ----
+// ---- 2. gerência: produto com custo (modal Novo Produto) ----
 await page.click("#tabEstoque");
+await page.click("#newProdBtn");
+await page.waitForSelector("#prodModal.show");
 await page.fill("#np_code", "9990001112223");
 await page.fill("#np_name", "Produto Margem");
 await page.fill("#np_price", "10,00");
@@ -211,6 +213,32 @@ const stockTxt2 = await page.evaluate(() => {
   return document.getElementById("prodList").textContent;
 });
 check("sem aviso quando o estoque é folgado", !/estoque p\/ ~\d+ dias?/.test(stockTxt2));
+
+// ---- 10.5 editar produto pela lista densa (toque no card → modal) ----
+await page.click('#prodList .prow[data-code="9990001112223"]');
+await page.waitForSelector("#prodModal.show");
+const editState = await page.evaluate(() => ({
+  name: document.getElementById("np_name").value,
+  codeReadonly: document.getElementById("np_code").readOnly,
+  delVisible: document.getElementById("prodDeleteBtn").style.display !== "none"
+}));
+check("modal de edição carrega o produto com código travado", editState.name === "Produto Margem" && editState.codeReadonly && editState.delVisible, JSON.stringify(editState));
+await page.fill("#np_price", "12,50");
+await page.click("#addProdBtn");
+await page.waitForTimeout(200);
+const edited = await page.evaluate(() => JSON.parse(localStorage.getItem("pdv:products")).find(p => p.code === "9990001112223"));
+check("edição pelo modal salva o novo preço", !!edited && edited.price === 12.5, JSON.stringify(edited));
+check("modal fecha após salvar edição", await page.evaluate(() => !document.getElementById("prodModal").classList.contains("show")));
+
+// ---- 10.6 preferências (engrenagem): limite de estoque baixo ----
+await page.click("#prefsBtn");
+await page.waitForSelector("#prefsModal.show");
+await page.fill("#lowThreshold", "3");
+await page.dispatchEvent("#lowThreshold", "change");
+await page.click("#prefsClose");
+await page.waitForTimeout(200);
+const lowSaved = await page.evaluate(() => JSON.parse(localStorage.getItem("pdv:settings")).lowStock);
+check("limite de estoque baixo salvo pelas preferências", lowSaved === 3, String(lowSaved));
 
 // ---- 11. backup: exportar, corromper, importar e restaurar ----
 const [download] = await Promise.all([

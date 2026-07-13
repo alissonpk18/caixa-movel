@@ -165,53 +165,28 @@ function wire(){
   $("rsConfirm").addEventListener("click", confirmRestock);
   $("restockModal").addEventListener("click", e=>{ if(e.target.id==="restockModal") closeRestock(); });
 
-  // gerência: editar estoque (delegação no change)
-  $("prodList").addEventListener("change", e=>{
-    const inp=e.target.closest("input"); if(!inp) return;
-    const row=inp.closest(".prow"); const code=row.dataset.code;
-    const p=findProduct(code); if(!p) return;
-    if(inp.dataset.f==="name"){
-      const v=inp.value.trim(); if(!v){ inp.value=p.name; return; }
-      p.name=v; inp.value=v;
-    }else if(inp.dataset.f==="price"){
-      const v=parseMoney(inp.value); if(isNaN(v)||v<0||v>PRICE_MAX){ inp.value=p.price.toFixed(2); return; }
-      p.price=round2(v); inp.value=p.price.toFixed(2);
-    }else if(inp.dataset.f==="cost"){
-      const raw=inp.value.trim();
-      if(!raw){ p.cost=null; inp.value=""; }
-      else{
-        const v=parseMoney(raw);
-        if(isNaN(v)||v<0||v>PRICE_MAX){ inp.value=typeof p.cost==="number"?p.cost.toFixed(2):""; return; }
-        p.cost=round2(v); inp.value=p.cost.toFixed(2);
-      }
-    }else if(inp.dataset.f==="exp"){
-      p.exp=isIsoDate(inp.value)?inp.value:null;
-    }else{
-      const v=parseInt(inp.value,10); if(isNaN(v)||v<0||v>QTY_MAX){ inp.value=p.qty; return; }
-      p.qty=v;
-      // correção manual: define o valor absoluto na nuvem (ver js/cloud.js)
-      if(typeof cloudEnqueueStockSet==="function") cloudEnqueueStockSet(p.code, p.qty);
-    }
-    saveProducts();
-    row.classList.toggle("low", p.qty<=settings.lowStock);
-    const badge=row.querySelector(".stockbadge"); if(badge) badge.textContent=p.qty+" un · "+p.code;
-    refreshExpRow(row,p); renderExpAlert();
-    const s=row.querySelector(".saved"); s.classList.add("show"); setTimeout(()=>s.classList.remove("show"),1100);
-  });
-
-  // gerência: excluir produto (delegação no click)
+  // gerência: lista densa só de leitura — o toque no card abre o modal de edição
   $("prodList").addEventListener("click", e=>{
-    const b=e.target.closest("[data-act='delprod']"); if(!b) return;
-    const row=b.closest(".prow"); const code=row.dataset.code;
-    const p=findProduct(code); if(!p) return;
-    askConfirm("Excluir produto","Remover \""+p.name+"\" do estoque? Esta ação não pode ser desfeita.",()=>{
-      DB.products=DB.products.filter(x=>x.code!==code);
-      saveProducts(); renderStock();
-      toast("Produto removido","bad");
-    },"Excluir");
+    const row=e.target.closest(".prow[data-code]"); if(!row) return;
+    openProdModal(row.dataset.code);
+  });
+  $("prodList").addEventListener("keydown", e=>{
+    if(e.key!=="Enter" && e.key!==" ") return;
+    const row=e.target.closest(".prow[data-code]"); if(!row) return;
+    e.preventDefault(); openProdModal(row.dataset.code);
   });
 
-  $("addProdBtn").addEventListener("click", addProduct);
+  // gerência: modal de produto (criar/editar/excluir)
+  $("newProdBtn").addEventListener("click", ()=>openProdModal(null));
+  $("addProdBtn").addEventListener("click", saveProdModal);
+  $("prodDeleteBtn").addEventListener("click", deleteProdFromModal);
+  $("prodModalClose").addEventListener("click", closeProdModal);
+  $("prodModal").addEventListener("click", e=>{ if(e.target.id==="prodModal") closeProdModal(); });
+
+  // gerência: preferências (alertas de estoque baixo e validade)
+  $("prefsBtn").addEventListener("click", ()=>$("prefsModal").classList.add("show"));
+  $("prefsClose").addEventListener("click", ()=>$("prefsModal").classList.remove("show"));
+  $("prefsModal").addEventListener("click", e=>{ if(e.target.id==="prefsModal") $("prefsModal").classList.remove("show"); });
 
   // gerência: busca de produtos
   $("prodSearch").addEventListener("input", e=>{ prodQuery=e.target.value; renderStock(); });
@@ -276,7 +251,7 @@ function wire(){
     if(e.key!=="Escape") return;
     if($("confirmModal").classList.contains("show")){ closeConfirm(); return; }
     if($("scanModal").classList.contains("show")){ closeScanModal(); return; }
-    ["payModal","receiptModal","manualModal","restockModal","cashModal"].forEach(id=>{ const m=$(id); if(m && m.classList.contains("show")) m.classList.remove("show"); });
+    ["payModal","receiptModal","manualModal","restockModal","cashModal","prodModal","prefsModal"].forEach(id=>{ const m=$(id); if(m && m.classList.contains("show")) m.classList.remove("show"); });
   });
 
   // bloqueia gestos/zoom residuais
@@ -294,7 +269,6 @@ function switchTab(which){
   if(which==="estoque") renderStock();
   else if(which==="vendas"){ renderSales(); renderCashHist(); }
   else renderUsers();
-  renderCards();
 }
 
 /* ---------- service worker (PWA: instalável e offline) ---------- */
