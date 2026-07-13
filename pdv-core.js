@@ -60,6 +60,7 @@
       if (typeof st.pixKey === "string") out.pixKey = st.pixKey.trim().slice(0, 77);
       if (typeof st.pixName === "string") out.pixName = st.pixName.trim().slice(0, 25);
       if (typeof st.pixCity === "string") out.pixCity = st.pixCity.trim().slice(0, 15);
+      if (typeof st.storeName === "string") out.storeName = st.storeName.trim().slice(0, 60);
     }
     return out;
   }
