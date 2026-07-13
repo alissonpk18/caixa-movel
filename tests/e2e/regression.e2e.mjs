@@ -40,7 +40,9 @@ const users = await page.evaluate(() => JSON.parse(localStorage.getItem("pdv:use
 const ger = users.find(u => u.username === "gerente");
 check("senha do gerente migrou para passHash", !!ger.passHash && ger.password === undefined, JSON.stringify(ger));
 
-// ---- 2. cadastro de produto: validações ----
+// ---- 2. cadastro de produto: modal + validações ----
+await page.click("#newProdBtn");
+await page.waitForSelector("#prodModal.show");
 await page.fill("#np_code", "1234567890123");
 await page.fill("#np_name", "Produto Teste");
 await page.fill("#np_price", "10000000");
@@ -54,6 +56,7 @@ check("quantidade acima do teto é rejeitada", (await page.textContent("#np_err"
 await page.fill("#np_qty", "10");
 await page.click("#addProdBtn");
 await page.waitForTimeout(200);
+check("modal fecha após cadastrar", await page.evaluate(() => !document.getElementById("prodModal").classList.contains("show")));
 const prods = await page.evaluate(() => JSON.parse(localStorage.getItem("pdv:products")));
 const novo = prods.find(p => p.code === "1234567890123");
 check("produto cadastrado com preço 3.50", !!novo && novo.price === 3.5, JSON.stringify(novo));

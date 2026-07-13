@@ -1,13 +1,13 @@
 "use strict";
 /* ================================================================
-   GERÊNCIA — cards, estoque, vendas
+   GERÊNCIA — estoque, vendas (os KPIs do dia moraram para Indicadores)
    ================================================================ */
 function renderManager(){
   if($("lowThreshold")) $("lowThreshold").value=settings.lowStock;
   if($("expThreshold")) $("expThreshold").value=settings.expWarnDays;
   if($("salesDate")) $("salesDate").value = salesFilter ? keyToIso(salesFilter) : "";
   if($("pix_key")){ $("pix_key").value=settings.pixKey||""; $("pix_name").value=settings.pixName||""; $("pix_city").value=settings.pixCity||""; }
-  renderCards(); renderStock(); renderSales(); renderUsers(); renderCashHist();
+  renderStock(); renderSales(); renderUsers(); renderCashHist();
 }
 
 function filteredSales(){
@@ -43,14 +43,6 @@ function expText(iso){
   if(d<=settings.expWarnDays) return "⏰ Vence em "+d+" "+(d===1?"dia":"dias")+" ("+br+")";
   return "Validade: "+br;
 }
-/* atualiza o selo e as bordas de uma linha do estoque conforme a validade */
-function refreshExpRow(row,p){
-  const ec=expClass(p.exp);
-  row.classList.remove("soon","expired");
-  if(ec) row.classList.add(ec);
-  const lbl=row.querySelector(".explabel");
-  if(lbl){ lbl.textContent=expText(p.exp); lbl.className="explabel "+ec; }
-}
 function renderExpAlert(){
   const el=$("expAlert"); if(!el) return;
   const expired=DB.products.filter(p=>expClass(p.exp)==="expired").length;
@@ -79,32 +71,13 @@ function renderStock(){
       ? ` <span class="explabel ${left<=3?"expired":"soon"}">📦 estoque p/ ~${leftDays} ${leftDays===1?"dia":"dias"}</span>`
       : "";
     return `
-    <div class="prow ${p.qty<=settings.lowStock?"low":""} ${ec}" data-code="${escapeHtml(p.code)}">
+    <div class="prow ${p.qty<=settings.lowStock?"low":""} ${ec}" data-code="${escapeHtml(p.code)}" role="button" tabindex="0" aria-label="Editar ${escapeHtml(p.name)}">
       <div class="top">
-        <input class="pname-input" type="text" data-f="name" value="${escapeHtml(p.name)}" />
-        <button class="prow-del" data-act="delprod" title="Excluir produto">✕</button>
+        <div class="pname">${escapeHtml(p.name)}</div>
+        <div class="pprice">${money(p.price)}</div>
       </div>
-      <div class="code-line stockbadge">${p.qty} un · ${escapeHtml(p.code)}</div>
-      <div><span class="explabel ${ec}">${escapeHtml(expText(p.exp))}</span>${leftTag}</div>
-      <div class="edits">
-        <div class="e">
-          <label>Preço (R$)</label>
-          <input type="tel" inputmode="decimal" data-f="price" value="${p.price.toFixed(2)}" />
-        </div>
-        <div class="e">
-          <label>Custo (R$)</label>
-          <input type="tel" inputmode="decimal" data-f="cost" value="${typeof p.cost==="number"?p.cost.toFixed(2):""}" placeholder="—" />
-        </div>
-        <div class="e">
-          <label>Estoque</label>
-          <input type="tel" inputmode="numeric" data-f="qty" value="${p.qty}" />
-        </div>
-      </div>
-      <div class="exp-edit">
-        <label>Validade</label>
-        <input type="date" data-f="exp" value="${p.exp||""}" />
-      </div>
-      <div style="text-align:right;margin-top:6px"><span class="saved">✓ salvo</span></div>
+      <div class="code-line">${escapeHtml(p.code)}</div>
+      <div><span class="qtybadge">${p.qty} un</span><span class="explabel ${ec}">${escapeHtml(expText(p.exp))}</span>${leftTag}</div>
     </div>`;
   }).join("");
 }
@@ -198,32 +171,82 @@ async function reloadFromStorage(){
   }
 }
 
-function addProduct(){
+/* ================================================================
+   MODAL DE PRODUTO — criar e editar usam a mesma sheet; a lista do
+   estoque é só leitura e o toque no card injeta o produto aqui.
+   ================================================================ */
+let prodModalCode=null; // null = novo produto; senão, código do produto em edição
+
+function openProdModal(code){
+  const p = code ? findProduct(code) : null;
+  prodModalCode = p ? p.code : null;
+  $("prodModalTitle").textContent = p ? "Editar produto" : "Novo produto";
+  $("prodModalSub").textContent = p ? "Altere os dados e salve. O código de barras não muda." : "Preencha os dados do produto.";
+  $("addProdBtn").textContent = p ? "Salvar alterações" : "Cadastrar produto";
+  $("prodDeleteBtn").style.display = p ? "" : "none";
+  $("np_code").value = p ? p.code : "";
+  $("np_code").readOnly = !!p;
+  $("np_name").value = p ? p.name : "";
+  $("np_price").value = p ? p.price.toFixed(2) : "";
+  $("np_qty").value = p ? String(p.qty) : "";
+  $("np_cost").value = (p && typeof p.cost==="number") ? p.cost.toFixed(2) : "";
+  $("np_exp").value = (p && p.exp) ? p.exp : "";
+  $("np_err").textContent="";
+  $("prodModal").classList.add("show");
+}
+function closeProdModal(){ $("prodModal").classList.remove("show"); prodModalCode=null; }
+
+/* lê e valida o formulário; devolve null (com mensagem no #np_err) se inválido */
+function readProdForm(){
+  const err=$("np_err");
   const code=$("np_code").value.trim();
   const name=$("np_name").value.trim();
   const price=parseMoney($("np_price").value);
   const qty=parseInt($("np_qty").value,10);
   const costRaw=$("np_cost").value.trim();
   const exp=$("np_exp").value||null;
-  const err=$("np_err");
 
-  if(!/^\d{6,14}$/.test(code)){ err.textContent="Código inválido (use 6 a 14 dígitos)."; return; }
-  if(findProduct(code)){ err.textContent="Já existe um produto com esse código."; return; }
-  if(!name){ err.textContent="Informe o nome do produto."; return; }
-  if(isNaN(price)||price<=0||price>PRICE_MAX){ err.textContent="Preço inválido (até R$ 999.999,99)."; return; }
-  if(isNaN(qty)||qty<0||qty>QTY_MAX){ err.textContent="Quantidade inválida (0 a 1.000.000)."; return; }
+  if(!/^\d{6,14}$/.test(code)){ err.textContent="Código inválido (use 6 a 14 dígitos)."; return null; }
+  if(!name){ err.textContent="Informe o nome do produto."; return null; }
+  if(isNaN(price)||price<=0||price>PRICE_MAX){ err.textContent="Preço inválido (até R$ 999.999,99)."; return null; }
+  if(isNaN(qty)||qty<0||qty>QTY_MAX){ err.textContent="Quantidade inválida (0 a 1.000.000)."; return null; }
   let cost=null;
   if(costRaw){
     cost=parseMoney(costRaw);
-    if(isNaN(cost)||cost<0||cost>PRICE_MAX){ err.textContent="Custo inválido."; return; }
+    if(isNaN(cost)||cost<0||cost>PRICE_MAX){ err.textContent="Custo inválido."; return null; }
     cost=round2(cost);
   }
-
-  DB.products.unshift({ code, name, price:round2(price), qty, exp:isIsoDate(exp)?exp:null, cost });
-  saveProducts();
-  ["np_code","np_name","np_price","np_qty","np_cost","np_exp"].forEach(id=>$(id).value="");
   err.textContent="";
-  renderStock();
-  toast("✓ "+name+" cadastrado","ok");
+  return { code, name, price:round2(price), qty, exp:isIsoDate(exp)?exp:null, cost };
+}
+
+function saveProdModal(){
+  const data=readProdForm(); if(!data) return;
+  const err=$("np_err");
+  if(prodModalCode){
+    const p=findProduct(prodModalCode);
+    if(!p){ err.textContent="Produto não encontrado — a lista pode ter mudado em outro aparelho."; return; }
+    const qtyChanged = p.qty!==data.qty;
+    p.name=data.name; p.price=data.price; p.cost=data.cost; p.qty=data.qty; p.exp=data.exp;
+    // correção manual de estoque: define o valor absoluto na nuvem (ver js/cloud.js)
+    if(qtyChanged && typeof cloudEnqueueStockSet==="function") cloudEnqueueStockSet(p.code, p.qty);
+    saveProducts(); renderStock(); closeProdModal();
+    toast("✓ "+p.name+" atualizado","ok");
+  }else{
+    if(findProduct(data.code)){ err.textContent="Já existe um produto com esse código."; return; }
+    DB.products.unshift(data);
+    saveProducts(); renderStock(); closeProdModal();
+    toast("✓ "+data.name+" cadastrado","ok");
+  }
+}
+
+function deleteProdFromModal(){
+  if(!prodModalCode) return;
+  const p=findProduct(prodModalCode); if(!p) return;
+  askConfirm("Excluir produto","Remover \""+p.name+"\" do estoque? Esta ação não pode ser desfeita.",()=>{
+    DB.products=DB.products.filter(x=>x.code!==p.code);
+    saveProducts(); renderStock(); closeProdModal();
+    toast("Produto removido","bad");
+  },"Excluir");
 }
 

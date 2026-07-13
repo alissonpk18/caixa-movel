@@ -115,6 +115,7 @@ function basketHtml(pairs){
 }
 
 function renderDashboard(){
+  renderCards(); // KPIs do dia (Recebido/Vendas/Itens) moram só nesta tela
   const el = $("dashContent"); if(!el) return;
   const list = dashSalesInWindow();
   if(!list.length){

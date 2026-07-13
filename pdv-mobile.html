@@ -114,12 +114,6 @@
     <div id="storageBanner2"></div>
 
     <div class="mscroll">
-      <div class="cards">
-        <div class="stat wide"><div class="k">Recebido hoje</div><div class="v" id="cardRevenue">R$ 0,00</div></div>
-        <div class="stat"><div class="k">Vendas hoje</div><div class="v" id="cardCount">0</div></div>
-        <div class="stat"><div class="k">Itens vendidos</div><div class="v" id="cardItems">0</div></div>
-      </div>
-
       <div class="tabs">
         <button id="tabEstoque" class="active">Estoque</button>
         <button id="tabVendas">Vendas</button>
@@ -128,26 +122,12 @@
 
       <!-- ESTOQUE -->
       <div class="panel is-active" id="panelEstoque">
-        <div class="addbox">
-          <div class="sectitle" style="margin-top:0">Adicionar produto</div>
-          <div class="grid">
-            <input class="full" id="np_code" type="tel" inputmode="numeric" placeholder="Código de barras" />
-            <input class="full" id="np_name" type="text" placeholder="Nome do produto" />
-            <input id="np_price" type="tel" inputmode="decimal" placeholder="Preço (R$)" />
-            <input id="np_qty" type="tel" inputmode="numeric" placeholder="Quantidade" />
-            <input class="full" id="np_cost" type="tel" inputmode="decimal" placeholder="Custo (R$) — opcional, para ver a margem" />
-          </div>
-          <div class="exp-edit" style="margin-top:10px">
-            <label for="np_exp">Validade (opcional)</label>
-            <input id="np_exp" type="date" />
-          </div>
-          <div class="err" id="np_err"></div>
-          <button class="btn btn-primary" id="addProdBtn" style="margin-top:10px">Cadastrar produto</button>
+        <div class="panel-head">
+          <div class="sectitle">Produtos no estoque</div>
+          <button class="gearbtn" id="prefsBtn" title="Preferências de estoque" aria-label="Preferências de estoque">⚙️</button>
+          <div class="grow"></div>
+          <button class="btn btn-primary btn-inline" id="newProdBtn">+ Novo Produto</button>
         </div>
-
-        <div class="sectitle">Produtos no estoque</div>
-        <div class="lowcfg">Alerta de estoque baixo em ≤ <input id="lowThreshold" type="tel" inputmode="numeric" value="5" /> un</div>
-        <div class="lowcfg">Avisar validade a partir de <input id="expThreshold" type="tel" inputmode="numeric" value="30" /> dias antes</div>
         <input id="prodSearch" class="prod-search" type="search" placeholder="Buscar por nome ou código" />
         <div class="exp-alert" id="expAlert"></div>
         <div id="prodList"></div>
@@ -232,6 +212,13 @@
       <button class="iconbtn" id="dashBackBtn">Voltar</button>
     </div>
     <div class="mscroll">
+      <div class="sectitle">Hoje</div>
+      <div class="cards">
+        <div class="stat wide"><div class="k">Recebido hoje</div><div class="v" id="cardRevenue">R$ 0,00</div></div>
+        <div class="stat"><div class="k">Vendas hoje</div><div class="v" id="cardCount">0</div></div>
+        <div class="stat"><div class="k">Itens vendidos</div><div class="v" id="cardItems">0</div></div>
+      </div>
+      <div class="sectitle" style="margin-top:16px">Período</div>
       <div class="dash-filter" id="dashFilter">
         <button data-days="7">7 dias</button>
         <button data-days="30" class="active">30 dias</button>
@@ -393,6 +380,44 @@
           <button class="btn btn-ghost" id="cashBackBtn">Voltar</button>
           <button class="btn btn-ok" id="cashConfirmClose">Confirmar fechamento</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PRODUTO (criar / editar — gerência) ============ -->
+  <div class="modal" id="prodModal" role="dialog" aria-modal="true" aria-labelledby="prodModalTitle">
+    <div class="sheet">
+      <h3 id="prodModalTitle">Novo produto</h3>
+      <p class="sub" id="prodModalSub">Preencha os dados do produto.</p>
+      <div class="grid">
+        <input class="full" id="np_code" type="tel" inputmode="numeric" placeholder="Código de barras" />
+        <input class="full" id="np_name" type="text" placeholder="Nome do produto" />
+        <input id="np_price" type="tel" inputmode="decimal" placeholder="Preço (R$)" />
+        <input id="np_qty" type="tel" inputmode="numeric" placeholder="Quantidade" />
+        <input class="full" id="np_cost" type="tel" inputmode="decimal" placeholder="Custo (R$) — opcional, para ver a margem" />
+      </div>
+      <div class="exp-edit" style="margin-top:10px">
+        <label for="np_exp">Validade (opcional)</label>
+        <input id="np_exp" type="date" />
+      </div>
+      <div class="err" id="np_err"></div>
+      <button class="btn btn-bad" id="prodDeleteBtn" style="display:none;margin-top:2px">Excluir produto</button>
+      <div class="mactions">
+        <button class="btn btn-ghost" id="prodModalClose">Fechar</button>
+        <button class="btn btn-primary" id="addProdBtn">Cadastrar produto</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PREFERÊNCIAS (alertas de estoque/validade) ============ -->
+  <div class="modal" id="prefsModal" role="dialog" aria-modal="true" aria-labelledby="prefsTitle">
+    <div class="sheet">
+      <h3 id="prefsTitle">Preferências</h3>
+      <p class="sub">Alertas de estoque e validade. Valem para toda a loja.</p>
+      <div class="lowcfg">Alerta de estoque baixo em ≤ <input id="lowThreshold" type="tel" inputmode="numeric" value="5" /> un</div>
+      <div class="lowcfg">Avisar validade a partir de <input id="expThreshold" type="tel" inputmode="numeric" value="30" /> dias antes</div>
+      <div class="mactions">
+        <button class="btn btn-ghost" id="prefsClose">Fechar</button>
       </div>
     </div>
   </div>
