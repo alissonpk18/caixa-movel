@@ -6,15 +6,30 @@ function show(screenId){
   document.querySelectorAll(".screen").forEach(s=>s.classList.toggle("is-active", s.id===screenId));
 }
 
+/* topbar mostra o nome da empresa (baixado da nuvem) em destaque quando
+   disponível, com o contexto (papel + usuário) na linha pequena embaixo.
+   Sem nuvem configurada (ou ainda não sincronizado), cai no layout
+   anterior — sem nome de empresa para mostrar, cada tela usa o que tem
+   de mais útil em destaque (o rótulo fixo na gerência, o nome da pessoa
+   no caixa). */
+function topbarHtml(contextLabel, userName, fallbackBold, fallbackSmall){
+  const company = (settings.storeName||"").trim();
+  if(company){
+    const ctx = userName ? contextLabel+" · "+escapeHtml(userName) : contextLabel;
+    return escapeHtml(company)+"<small>"+ctx+"</small>";
+  }
+  return escapeHtml(fallbackBold)+"<small>"+escapeHtml(fallbackSmall)+"</small>";
+}
+
 function enterApp(found){
   state.user=found;
   initAudio();
   saveSession();
   if(found.role==="gerente"){
-    $("gerName").innerHTML = "Gerência<small>"+escapeHtml(found.name||"")+"</small>";
+    $("gerName").innerHTML = topbarHtml("Gerência", found.name, "Gerência", found.name||"");
     show("gerente"); renderManager();
   }else{
-    $("opName").innerHTML = escapeHtml(found.name||"Caixa")+"<small>Operador</small>";
+    $("opName").innerHTML = topbarHtml("Operador", found.name, found.name||"Caixa", "Operador");
     $("restockBtn").style.display = canAddStock(found) ? "" : "none";
     $("backToGerBtn").style.display = "none";
     clearCart();
@@ -26,7 +41,7 @@ function enterApp(found){
 /* gerência: ir para o caixa sem encerrar a sessão (mesmo usuário, mesmas permissões) */
 function enterCaixaFromManager(){
   if(!state.user || state.user.role!=="gerente") return;
-  $("opName").innerHTML = escapeHtml(state.user.name||"Caixa")+"<small>Gerência no caixa</small>";
+  $("opName").innerHTML = topbarHtml("Gerência no caixa", state.user.name, state.user.name||"Caixa", "Gerência no caixa");
   $("restockBtn").style.display = canAddStock(state.user) ? "" : "none";
   $("backToGerBtn").style.display = "";
   clearCart();

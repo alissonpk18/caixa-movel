@@ -56,6 +56,12 @@ function handleFakeApi({ fn, uid, args }){
     DB.device_links.push({ auth_uid:uid, store_id:o.store_id, username:args.p_username, linked_at:new Date().toISOString() });
     return { data:[{ store_id:o.store_id, name:o.name||"", role:o.role||"operador", can_add_stock:!!o.can_add_stock }], error:null };
   }
+  if(fn==="rpc.my_store_name"){
+    if(!uid) return { data:null, error:null };
+    const link = DB.device_links.find(x=>x.auth_uid===uid);
+    const store = link && DB.stores.find(s=>s.id===link.store_id);
+    return { data: store ? (store.name||"") : null, error:null };
+  }
   if(fn==="rpc.apply_sale" || fn==="rpc.adjust_stock" || fn==="rpc.set_stock"){
     if(!uid) return { data:null, error:{ message:"not authenticated" } };
     const link = DB.device_links.find(x=>x.auth_uid===uid);
@@ -175,7 +181,7 @@ window.supabase = { createClient: function(){
     return api;
   }
   async function rpc(name, args){
-    if(!["login_operator","apply_sale","adjust_stock","set_stock"].includes(name)){
+    if(!["login_operator","apply_sale","adjust_stock","set_stock","my_store_name"].includes(name)){
       return { data:null, error:{message:"unknown rpc"} };
     }
     return call("rpc."+name, args);

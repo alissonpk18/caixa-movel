@@ -317,14 +317,15 @@ async function cloudPull(){
     ? base.gt("at", mark).order("at",{ascending:true})   // backlog novo: mais antigo primeiro
     : base.order("at",{ascending:false});                 // primeira vez: as 5000 mais recentes
 
-  const [pr, sl, kv, ops, ce] = await Promise.all([
+  const [pr, sl, kv, ops, ce, sn] = await Promise.all([
     sbClient.from("products").select("code,name,price,cost,qty,exp").eq("store_id",cloudStoreId),
     salesQuery,
     sbClient.from("kv").select("key,value").eq("store_id",cloudStoreId),
     sbClient.from("operators").select("username,name,role,can_add_stock,pass_hash").eq("store_id",cloudStoreId),
-    sbClient.from("cash_events").select("type,at,data").eq("store_id",cloudStoreId)
+    sbClient.from("cash_events").select("type,at,data").eq("store_id",cloudStoreId),
+    sbClient.rpc("my_store_name")
   ]);
-  const err = pr.error || sl.error || kv.error || ops.error || ce.error;
+  const err = pr.error || sl.error || kv.error || ops.error || ce.error || sn.error;
   if(err) throw err;
 
   const kvMap = {};
@@ -362,6 +363,7 @@ async function cloudPull(){
     else if(kvMap.cash)   DB.cash = sanitizeCash(kvMap.cash) || DB.cash;
 
     if(kvMap.settings) applySettings(kvMap.settings);
+    if(typeof sn.data === "string") settings.storeName = sn.data.trim();
     await saveProducts(); await saveSales(); await saveUsers(); await saveCash(); await saveSettings();
   }finally{ cloudApplying = false; }
   cloudReconcileSession();

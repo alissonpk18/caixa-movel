@@ -199,6 +199,20 @@ as $$
   )
 $$;
 
+-- nome da empresa deste aparelho, para exibir na barra superior do PDV.
+-- Função própria (em vez de liberar SELECT geral em `stores` a aparelhos)
+-- porque a tabela `stores` guarda dados administrativos (owner, email) que
+-- um aparelho vinculado não precisa — só o nome, e só o da própria empresa.
+create or replace function public.my_store_name()
+returns text
+language sql stable security definer
+set search_path = public
+as $$
+  select name from public.stores where id = public.my_store_id()
+$$;
+
+grant execute on function public.my_store_name() to authenticated;
+
 alter table public.stores       enable row level security;
 alter table public.products     enable row level security;
 alter table public.sales        enable row level security;
