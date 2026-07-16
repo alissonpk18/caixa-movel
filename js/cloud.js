@@ -323,9 +323,12 @@ async function cloudPull(){
     sbClient.from("kv").select("key,value").eq("store_id",cloudStoreId),
     sbClient.from("operators").select("username,name,role,can_add_stock,pass_hash").eq("store_id",cloudStoreId),
     sbClient.from("cash_events").select("type,at,data").eq("store_id",cloudStoreId),
-    sbClient.rpc("my_store_name")
+    /* opcional: bancos ainda sem a migração da função my_store_name()
+       não podem derrubar login/sincronização por causa só do nome de
+       exibição da empresa — erro aqui é tratado à parte, nunca lançado. */
+    sbClient.rpc("my_store_name").catch(e=>({data:null, error:e}))
   ]);
-  const err = pr.error || sl.error || kv.error || ops.error || ce.error || sn.error;
+  const err = pr.error || sl.error || kv.error || ops.error || ce.error;
   if(err) throw err;
 
   const kvMap = {};
