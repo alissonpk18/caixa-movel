@@ -11,6 +11,8 @@ const DB = { users:[], products:[], sales:[], cash:{ open:null, history:[] } };
 let settings = { lowStock:5, expWarnDays:30, pixKey:"", pixName:"", pixCity:"", storeName:"" };
 let salesFilter = todayKey();   // chave de data selecionada; null = todas
 let prodQuery = "";
+let prodSort = "name-asc";
+let prodFilter = "all"; // all | low | exp
 let state = { user:null, cart:[], muted:false, scanner:null, native:null, scanReady:false, scanStarting:false, scanStopping:null, lastScan:{code:"",t:0}, audio:null, pay:{method:"dinheiro"}, lastSale:null };
 
 const SEED_USERS = [

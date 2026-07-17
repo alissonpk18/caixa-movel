@@ -130,7 +130,23 @@
           <div class="grow"></div>
           <button class="btn btn-primary btn-inline" id="newProdBtn">+ Novo Produto</button>
         </div>
-        <input id="prodSearch" class="prod-search" type="search" placeholder="Buscar por nome ou código" />
+        <div class="stock-tools">
+          <input id="prodSearch" class="prod-search" type="search" placeholder="Buscar por nome ou código" />
+          <select id="prodSort" class="prod-sort" title="Ordenar" aria-label="Ordenar">
+            <option value="name-asc">Nome A-Z</option>
+            <option value="name-desc">Nome Z-A</option>
+            <option value="qty-asc">Menor estoque</option>
+            <option value="qty-desc">Maior estoque</option>
+            <option value="price-asc">Menor preço</option>
+            <option value="price-desc">Maior preço</option>
+            <option value="exp-asc">Validade mais próxima</option>
+          </select>
+        </div>
+        <div class="stock-filter" id="stockFilter">
+          <button data-filter="all" class="active">Todos</button>
+          <button data-filter="low">Estoque baixo</button>
+          <button data-filter="exp">A vencer/vencidos</button>
+        </div>
         <div class="exp-alert" id="expAlert"></div>
         <div id="prodList"></div>
       </div>
