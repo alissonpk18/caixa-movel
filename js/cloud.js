@@ -44,8 +44,10 @@ const CLOUD_PULL_MS = 60000;
 let sbClient = null;        // cliente Supabase (null = lib não carregada/sem config)
 let cloudStoreId = null;    // id da empresa vinculada a este aparelho (null = ainda não vinculado)
 let cloudApplying = false;  // aplicando um pull: não re-marcar como sujo
-/* "users" não existe mais aqui — operadores são geridos pelo console
-   admin direto na tabela `operators` (achado A-03); o aparelho só lê. */
+/* "users" não existe mais aqui — operadores vivem na tabela `operators`
+   (achado A-03), geridos pelo console admin ou (só para novos caixas)
+   pela gerência via RPC create_operator; nunca por upsert direto do
+   aparelho, que o RLS bloqueia. */
 const cloudDirty = { products:false, sales:false, stock:false, cashEvents:false, settings:false };
 let cloudPushT = null;
 
@@ -229,6 +231,32 @@ async function cloudEnqueueStockSet(code, qty){
     await sset("pdv:cloudPendingStockSets", map);
   }catch(e){}
   cloudMarkDirty("stock");
+}
+
+/* chamado por js/users.js quando a gerência cadastra um caixa com a
+   empresa na nuvem: reautentica com usuário+senha do gerente logado
+   (RPC create_operator) em vez de confiar no vínculo do aparelho
+   (device_links), que não diz qual usuário está logado nele agora —
+   só quem sabe a senha de um gerente da loja consegue cadastrar. */
+async function cloudCreateOperator(newUser){
+  if(!cloudOn()) return { error:"Sem conexão com a nuvem — tente de novo." };
+  const mgr = state.user;
+  if(!mgr || mgr.role!=="gerente" || !mgr.passHash) return { error:"Sessão inválida." };
+  try{
+    const hash = await hashPassword(newUser.password);
+    if(!hash) return { error:"Não foi possível gerar a senha neste navegador." };
+    const { error } = await sbClient.rpc("create_operator", {
+      p_mgr_username: mgr.username, p_mgr_hash: mgr.passHash,
+      p_new_username: newUser.username, p_new_name: newUser.name,
+      p_new_can_add_stock: !!newUser.canAddStock, p_new_hash: hash
+    });
+    if(error){
+      const dup = /duplicate|unique|already exists/i.test(error.message||"");
+      return { error: dup ? "Este login já existe (em alguma empresa) — escolha outro." : "Não foi possível cadastrar — tente de novo." };
+    }
+    await cloudPull();
+    return { ok:true };
+  }catch(e){ return { error:"Sem conexão com a nuvem — tente de novo." }; }
 }
 
 async function cloudPushKV(key){

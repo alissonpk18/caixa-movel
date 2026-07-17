@@ -144,15 +144,37 @@ check("os 3 eventos de caixa chegaram na nuvem (abertura + 2 movimentos)", cashE
 const movementsOnA = await pageA.evaluate(() => DB.cash.open.movements.length);
 check("nenhum movimento de caixa se perde na corrida (reforço do A + sangria do B)", movementsOnA === 2, "movimentos=" + movementsOnA);
 
-/* ---- no modo nuvem o painel Usuários do aparelho é somente leitura:
-   quem cadastra/edita/remove acessos é o console do admin — uma edição
-   local nunca subiria (o RLS bloqueia) e seria desfeita em silêncio pelo
-   pull seguinte, o clássico conflito de duas fontes de verdade ---- */
+/* ---- no modo nuvem, editar/remover acesso continua exclusivo do
+   console do admin — uma edição local nunca subiria (o RLS bloqueia) e
+   seria desfeita em silêncio pelo pull seguinte; mas a GERÊNCIA pode
+   cadastrar novos caixas direto do aparelho via RPC create_operator ---- */
 await pageA.evaluate(() => switchTab("usuarios"));
-check("modo nuvem: cadastro local de usuário fica oculto", await pageA.isHidden("#userAddBox"));
-check("modo nuvem: aviso de gestão pelo console aparece", await pageA.isVisible("#usersCloudNote"));
+check("modo nuvem: gerência ainda vê o cadastro de usuário (só caixa)", await pageA.isVisible("#userAddBox"));
+check("modo nuvem: aviso do que fica com o console aparece", await pageA.isVisible("#usersCloudNote"));
+check("modo nuvem: seletor de perfil trava em Caixa (sem opção Gerência)",
+  await pageA.evaluate(() => document.getElementById("nu_role").disabled &&
+    getComputedStyle(document.querySelector('#nu_role option[value="gerente"]')).display === "none"));
 check("modo nuvem: lista de usuários sem botões de excluir/permissão",
   (await pageA.locator("#userList [data-act]").count()) === 0);
+
+await pageA.fill("#nu_name", "Caixa Novo");
+await pageA.fill("#nu_user", "caixanovo");
+await pageA.fill("#nu_pass", "outrasenha1");
+await pageA.click("#addUserBtn");
+await pageA.waitForFunction(() => DB.users.some(u => u.username === "caixanovo"), null, { timeout: 8000 });
+check("gerência cadastrou um novo caixa pela RPC create_operator", true);
+check("o novo caixa foi criado com papel operador (nunca gerente)",
+  peekFakeDb().operators.find(o => o.username === "caixanovo").role === "operador");
+
+/* tentar cadastrar de novo com o mesmo login dá erro de duplicidade,
+   sem travar o formulário nem duplicar a linha em operators */
+await pageA.fill("#nu_name", "Caixa Duplicado");
+await pageA.fill("#nu_user", "caixanovo");
+await pageA.fill("#nu_pass", "outrasenha1");
+await pageA.click("#addUserBtn");
+await pageA.waitForFunction(() => document.getElementById("nu_err").textContent.length > 0, null, { timeout: 8000 });
+check("login duplicado no cadastro pela gerência dá erro (sem duplicar)",
+  peekFakeDb().operators.filter(o => o.username === "caixanovo").length === 1);
 
 /* ---- acesso removido pelo console some do aparelho no próximo sync,
    deslogando a sessão em vez de deixá-la seguir operando órfã ---- */

@@ -20,6 +20,10 @@
      diretamente, e o upsert genérico de "products" (linha abaixo)
      ignora qty num UPDATE, exatamente como o gatilho protect_product_qty
      do banco real; só um INSERT (produto novo) define qty pelo upsert.
+   - rpc('create_operator', ...): espelha a RPC que deixa a gerência
+     cadastrar um caixa direto do aparelho — confere usuário+senha de um
+     gerente da própria loja antes de inserir em `operators`, igual ao
+     banco real.
    - operators (achado A-03): username é chave PRIMÁRIA GLOBAL (não só
      dentro da empresa) — um INSERT com username repetido (em qualquer
      empresa) retorna erro, como a constraint única do banco real.
@@ -55,6 +59,24 @@ function handleFakeApi({ fn, uid, args }){
     DB.device_links = DB.device_links.filter(x=>x.auth_uid!==uid);
     DB.device_links.push({ auth_uid:uid, store_id:o.store_id, username:args.p_username, linked_at:new Date().toISOString() });
     return { data:[{ store_id:o.store_id, name:o.name||"", role:o.role||"operador", can_add_stock:!!o.can_add_stock }], error:null };
+  }
+  if(fn==="rpc.create_operator"){
+    const mgrUsername = String(args.p_mgr_username||"").toLowerCase();
+    const mgr = DB.operators.find(x=>x.username===mgrUsername);
+    if(!mgr || mgr.role!=="gerente" || mgr.pass_hash!==args.p_mgr_hash){
+      return { data:null, error:{ message:"não autorizado" } };
+    }
+    const newUsername = String(args.p_new_username||"").toLowerCase();
+    if(!/^[a-z0-9._-]{3,20}$/.test(newUsername)) return { data:null, error:{ message:"login inválido" } };
+    if(!args.p_new_hash) return { data:null, error:{ message:"senha inválida" } };
+    if(DB.operators.some(x=>x.username===newUsername)){
+      return { data:null, error:{ message:"duplicate key value violates unique constraint", code:"23505" } };
+    }
+    DB.operators.push({
+      username:newUsername, store_id:mgr.store_id, name:(args.p_new_name||"").trim()||newUsername,
+      role:"operador", can_add_stock: !!args.p_new_can_add_stock, pass_hash: args.p_new_hash
+    });
+    return { data:null, error:null };
   }
   if(fn==="rpc.my_store_name"){
     if(!uid) return { data:null, error:null };
@@ -181,7 +203,7 @@ window.supabase = { createClient: function(){
     return api;
   }
   async function rpc(name, args){
-    if(!["login_operator","apply_sale","adjust_stock","set_stock","my_store_name"].includes(name)){
+    if(!["login_operator","apply_sale","adjust_stock","set_stock","my_store_name","create_operator"].includes(name)){
       return { data:null, error:{message:"unknown rpc"} };
     }
     return call("rpc."+name, args);
