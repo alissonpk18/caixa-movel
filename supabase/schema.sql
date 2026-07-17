@@ -351,6 +351,57 @@ $$;
 grant execute on function public.login_operator(text, text) to anon, authenticated;
 
 -- ---------------------------------------------------------------------
+-- create_operator: permite que a GERÊNCIA cadastre novos usuários de
+-- caixa direto do aparelho, sem depender do console do administrador
+-- para esse caso comum do dia a dia. Autenticação por usuário+senha
+-- (mesmo padrão do login_operator acima) — não pelo vínculo do aparelho
+-- (device_links), que só registra quem logou da última vez que precisou
+-- rotear pela nuvem, não quem está logado agora. Só cria `operador`
+-- (nunca `gerente`): promover alguém a gerência continua exclusivo do
+-- console do admin, para não abrir um jeito de escalar privilégio a
+-- partir de um aparelho de loja comprometido.
+-- ---------------------------------------------------------------------
+create or replace function public.create_operator(
+  p_mgr_username text, p_mgr_hash text,
+  p_new_username text, p_new_name text, p_new_can_add_stock boolean, p_new_hash text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_store uuid;
+  v_role  text;
+  v_hash  text;
+begin
+  select o.store_id, o.role, o.pass_hash into v_store, v_role, v_hash
+    from public.operators o
+    where o.username = lower(p_mgr_username);
+
+  if v_store is null or v_role <> 'gerente' or v_hash <> p_mgr_hash then
+    raise exception 'não autorizado';
+  end if;
+
+  if p_new_username is null or not (lower(p_new_username) ~ '^[a-z0-9._-]{3,20}$') then
+    raise exception 'login inválido';
+  end if;
+  if coalesce(p_new_hash, '') = '' then
+    raise exception 'senha inválida';
+  end if;
+
+  insert into public.operators (username, store_id, name, role, can_add_stock, pass_hash)
+  values (
+    lower(p_new_username), v_store,
+    coalesce(nullif(trim(p_new_name), ''), lower(p_new_username)),
+    'operador', coalesce(p_new_can_add_stock, false), p_new_hash
+  );
+end;
+$$;
+
+grant execute on function public.create_operator(text, text, text, text, boolean, text) to anon, authenticated;
+
+-- ---------------------------------------------------------------------
 -- Proteção do estoque (achado A-02 do relatório de arquitetura): a
 -- quantidade só muda por uma destas três RPCs — nunca por um upsert
 -- absoluto qualquer, que a partir de agora só carrega nome/preço/custo/

@@ -12,7 +12,15 @@ function usersManagedByCloud(){ return typeof cloudEnabled==="function" && cloud
 function renderUsers(){
   const el=$("userList"); if(!el) return;
   const managed = usersManagedByCloud();
-  const box=$("userAddBox");     if(box)  box.style.display  = managed ? "none" : "";
+  // com a nuvem, a gerência ainda cadastra caixas (RPC create_operator);
+  // só promover a gerência, trocar senha ou remover acesso ficam com o
+  // console do admin — daí o seletor de perfil ficar travado em "Caixa"
+  const roleSel=$("nu_role");
+  if(roleSel){
+    roleSel.querySelectorAll('option[value="gerente"]').forEach(o=>o.style.display = managed ? "none" : "");
+    if(managed && roleSel.value==="gerente") roleSel.value="operador";
+    roleSel.disabled = managed;
+  }
   const note=$("usersCloudNote"); if(note) note.style.display = managed ? "" : "none";
   if(!DB.users.length){ el.innerHTML='<div class="empty-list">Nenhum usuário cadastrado.</div>'; return; }
   const meUser = state.user ? state.user.username : null;
@@ -51,11 +59,13 @@ async function addUser(){
   if(addUser.busy) return; // evita cadastro duplicado por duplo toque
   addUser.busy=true;
   try{
-    if(usersManagedByCloud()){ $("nu_err").textContent="Os acessos desta empresa são geridos pelo console do administrador."; return; }
+    const managed = usersManagedByCloud();
     const name=$("nu_name").value.trim();
     const username=$("nu_user").value.trim().toLowerCase();
     const password=$("nu_pass").value;
-    const role=$("nu_role").value==="gerente" ? "gerente" : "operador";
+    // com a nuvem, a gerência só cadastra caixas por aqui (promover a
+    // gerência é exclusivo do console do admin — veja renderUsers)
+    const role= managed ? "operador" : ($("nu_role").value==="gerente" ? "gerente" : "operador");
     const stock = role==="gerente" ? true : $("nu_stock").checked;
     const err=$("nu_err");
 
@@ -64,11 +74,17 @@ async function addUser(){
     if(DB.users.some(u=>u.username.toLowerCase()===username)){ err.textContent="Já existe um usuário com esse login."; return; }
     if(!password || password.length<4){ err.textContent="A senha precisa ter ao menos 4 caracteres."; return; }
 
-    const user={ username, role, name, canAddStock:stock };
-    const h=await hashPassword(password);
-    if(h) user.passHash=h; else user.password=password;
-    DB.users.push(user);
-    saveUsers();
+    if(managed){
+      if(typeof cloudCreateOperator!=="function"){ err.textContent="Recurso indisponível."; return; }
+      const res=await cloudCreateOperator({ username, name, canAddStock:stock, password });
+      if(res.error){ err.textContent=res.error; return; }
+    }else{
+      const user={ username, role, name, canAddStock:stock };
+      const h=await hashPassword(password);
+      if(h) user.passHash=h; else user.password=password;
+      DB.users.push(user);
+      saveUsers();
+    }
     ["nu_name","nu_user","nu_pass"].forEach(id=>$(id).value="");
     $("nu_role").value="operador"; $("nu_stock").checked=false; syncRolePerm();
     err.textContent="";
