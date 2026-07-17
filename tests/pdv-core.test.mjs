@@ -347,3 +347,68 @@ test("basketPairs identifica produtos comprados juntos", () => {
   assert.equal(PDV.basketPairs(sales, 1).length, 1);
   assert.deepEqual(PDV.basketPairs([]), []);
 });
+
+test("stockValueSummary soma valor de custo e de venda do estoque", () => {
+  const products = [
+    { qty: 10, price: 5, cost: 2 },
+    { qty: 4, price: 20, cost: null },
+    { qty: 0, price: 100, cost: 50 }
+  ];
+  const s = PDV.stockValueSummary(products);
+  assert.equal(s.costValue, 20); // só o produto com cost conhecido entra na soma de custo
+  assert.equal(s.retailValue, 130); // 10*5 + 4*20 + 0*100
+  assert.equal(s.units, 14);
+  assert.equal(s.count, 3);
+  assert.equal(s.margin, 550); // (130-20)/20*100
+  assert.equal(PDV.stockValueSummary([]).margin, null);
+});
+
+test("stockAlertCounts separa ruptura (qty=0) de estoque baixo (0<qty<=limite)", () => {
+  const products = [{ qty: 0 }, { qty: 2 }, { qty: 5 }, { qty: 20 }];
+  const r = PDV.stockAlertCounts(products, 5);
+  assert.equal(r.outOfStock, 1);
+  assert.equal(r.lowStock, 2); // qty 2 e qty 5
+});
+
+test("stockTurnover divide vendido pelo estoque atual (0 quando sem estoque)", () => {
+  assert.equal(PDV.stockTurnover(30, 60), 0.5);
+  assert.equal(PDV.stockTurnover(30, 0), 0);
+});
+
+test("stockValueRanking ordena por valor parado (custo, ou preço quando custo é desconhecido)", () => {
+  const products = [
+    { code: "1", name: "A", qty: 10, cost: 2, price: 5 },
+    { code: "2", name: "B", qty: 5, cost: null, price: 100 },
+    { code: "3", name: "C", qty: 0, cost: 999, price: 999 }
+  ];
+  const r = PDV.stockValueRanking(products);
+  assert.equal(r.length, 2); // qty=0 fica de fora
+  assert.equal(r[0].code, "2"); assert.equal(r[0].value, 500);
+  assert.equal(r[1].code, "1"); assert.equal(r[1].value, 20);
+});
+
+test("deadStock lista produtos com estoque mas sem venda recente (fora do avgMap)", () => {
+  const products = [
+    { code: "1", name: "Vende", qty: 10, cost: 1, price: 2 },
+    { code: "2", name: "Parado", qty: 3, cost: 4, price: 8 },
+    { code: "3", name: "Zerado", qty: 0, cost: 1, price: 2 }
+  ];
+  const avgMap = { "1": 0.5 };
+  const r = PDV.deadStock(products, avgMap);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].code, "2");
+  assert.equal(r[0].value, 12);
+});
+
+test("criticalCoverage lista produtos cujo estoque acaba em até N dias, ordenado por urgência", () => {
+  const products = [
+    { code: "1", name: "Urgente", qty: 2 },
+    { code: "2", name: "Folgado", qty: 100 },
+    { code: "3", name: "Sem venda", qty: 5 }
+  ];
+  const avgMap = { "1": 1, "2": 1 };
+  const r = PDV.criticalCoverage(products, avgMap, 14);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].code, "1");
+  assert.equal(r[0].days, 2);
+});

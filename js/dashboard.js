@@ -114,12 +114,69 @@ function basketHtml(pairs){
     </div>`).join("");
 }
 
+/* lista nome→valor no mesmo cartão do "comprados juntos" — usada nos rankings de estoque */
+function nameValueListHtml(rows, valueText, cls){
+  return rows.map(r=>`
+    <div class="basket-row${cls?" "+cls:""}">
+      <span class="bp-names">${escapeHtml(r.name)}</span>
+      <span class="bp-count">${valueText(r)}</span>
+    </div>`).join("");
+}
+
+/* seção de estoque — independe do filtro de período de vendas (é o estado atual do estoque) */
+function stockSectionHtml(){
+  const products = DB.products;
+  if(!products.length) return "";
+  const val = stockValueSummary(products);
+  const alerts = stockAlertCounts(products, settings.lowStock);
+  const expired = products.filter(p=>expClass(p.exp)==="expired").length;
+  const soon = products.filter(p=>expClass(p.exp)==="soon").length;
+  const avgMap = dailyAvgMap(DB.sales, 14);
+  const unitsSold14 = salesSummary(DB.sales.filter(s=>{ const t=Date.parse(s.ts); return isFinite(t) && t>=Date.now()-14*86400000; })).items;
+  const turnover = stockTurnover(unitsSold14, val.units);
+  const valueRanking = stockValueRanking(products).slice(0,8);
+  const dead = deadStock(products, avgMap);
+  const critical = criticalCoverage(products, avgMap, 14);
+
+  return `
+    <div class="sectitle" style="margin-top:20px">Estoque</div>
+    <div class="dash-kpis">
+      <div class="stat wide"><div class="k">Valor em estoque (custo)</div><div class="v">${money(val.costValue)}</div></div>
+      <div class="stat"><div class="k">Valor em estoque (venda)</div><div class="v">${money(val.retailValue)}</div></div>
+      <div class="stat"><div class="k">Margem média</div><div class="v">${val.margin==null?"—":val.margin.toFixed(0)+"%"}</div></div>
+      <div class="stat${alerts.outOfStock?" bad":""}"><div class="k">Em ruptura</div><div class="v">${alerts.outOfStock}</div></div>
+      <div class="stat${alerts.lowStock?" warn":""}"><div class="k">Estoque baixo</div><div class="v">${alerts.lowStock}</div></div>
+      <div class="stat${expired?" bad":""}"><div class="k">Vencidos</div><div class="v">${expired}</div></div>
+      <div class="stat${soon?" warn":""}"><div class="k">A vencer</div><div class="v">${soon}</div></div>
+      <div class="stat"><div class="k">Giro (14 dias)</div><div class="v">${turnover.toFixed(2)}×</div></div>
+    </div>
+
+    <div class="dash-section">
+      <div class="sectitle">Maior valor parado em estoque</div>
+      <div class="dash-note">Onde está concentrado o capital investido — candidatos a giro/promoção</div>
+      ${valueRanking.length ? productBarsHtml(valueRanking.map(r=>({name:r.name, revenue:r.value}))) : '<div class="empty-list">Nenhum produto com estoque.</div>'}
+    </div>
+
+    <div class="dash-section">
+      <div class="sectitle">Cobertura crítica (≤14 dias)</div>
+      <div class="dash-note">No ritmo atual de vendas, o estoque desses produtos acaba em breve</div>
+      ${critical.length ? nameValueListHtml(critical, r=>`${r.days===0?"hoje":r.days+"d"}`, "warn") : '<div class="empty-list">Nenhum produto em risco de ruptura no momento.</div>'}
+    </div>
+
+    <div class="dash-section">
+      <div class="sectitle">Produtos parados</div>
+      <div class="dash-note">Estoque disponível, mas sem venda nos últimos 14 dias</div>
+      ${dead.length ? nameValueListHtml(dead.slice(0,10), r=>money(r.value)) : '<div class="empty-list">Nenhum produto parado no momento.</div>'}
+    </div>
+  `;
+}
+
 function renderDashboard(){
   renderCards(); // KPIs do dia (Recebido/Vendas/Itens) moram só nesta tela
   const el = $("dashContent"); if(!el) return;
   const list = dashSalesInWindow();
   if(!list.length){
-    el.innerHTML = '<div class="empty-list">Sem vendas no período selecionado.</div>';
+    el.innerHTML = '<div class="empty-list">Sem vendas no período selecionado.</div>' + stockSectionHtml();
     return;
   }
   const sum = salesSummary(list);
@@ -183,5 +240,6 @@ function renderDashboard(){
       <div class="dash-note">Combos frequentes — úteis para promoções cruzadas e organização das prateleiras</div>
       ${pairs.length ? basketHtml(pairs) : '<div class="empty-list">Ainda não há combinações recorrentes suficientes.</div>'}
     </div>
+    ${stockSectionHtml()}
   `;
 }

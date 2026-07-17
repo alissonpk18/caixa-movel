@@ -24,7 +24,8 @@ const {
   isIsoDate, keyToIso, isoToKey, dateKey, daysUntilExp,
   sanitizeSettings, sanitizeUsers, sanitizeProducts, sanitizeCash,
   pixPayload, sessionSales, cashExpected, salesSummary, abcAnalysis, dailyAvgMap, daysOfStock,
-  salesByOperator, salesByHour, salesByWeekday, paymentBreakdown, dailyRevenueSeries, basketPairs
+  salesByOperator, salesByHour, salesByWeekday, paymentBreakdown, dailyRevenueSeries, basketPairs,
+  stockValueSummary, stockAlertCounts, stockTurnover, stockValueRanking, deadStock, criticalCoverage
 } = window.PDV;
 const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "id-"+Date.now()+"-"+Math.random().toString(16).slice(2);
 const sanitizeSales = (list) => window.PDV.sanitizeSales(list, uid);

@@ -346,6 +346,74 @@
     return typeof limit === "number" ? rows.slice(0, limit) : rows;
   }
 
+  /* ---------- indicadores de estoque ---------- */
+  /* valor investido (custo) e valor de venda (preço) de todo o estoque atual */
+  function stockValueSummary(products) {
+    const arr = Array.isArray(products) ? products : [];
+    let costSum = 0, retailSum = 0, units = 0;
+    arr.forEach(p => {
+      const qty = Number(p.qty) || 0;
+      const price = Number(p.price) || 0;
+      units += qty;
+      if (typeof p.cost === "number" && isFinite(p.cost)) costSum += qty * p.cost;
+      retailSum += qty * price;
+    });
+    const margin = costSum > 0 ? round2((retailSum - costSum) / costSum * 100) : null;
+    return { costValue: round2(costSum), retailValue: round2(retailSum), units, count: arr.length, margin };
+  }
+  /* rupturas (qty=0) e estoque baixo (0<qty<=lowStock) */
+  function stockAlertCounts(products, lowStock) {
+    const arr = Array.isArray(products) ? products : [];
+    const threshold = Number(lowStock) || 0;
+    let outOfStock = 0, low = 0;
+    arr.forEach(p => {
+      const qty = Number(p.qty) || 0;
+      if (qty <= 0) outOfStock++;
+      else if (qty <= threshold) low++;
+    });
+    return { outOfStock, lowStock: low };
+  }
+  /* giro aproximado no período: unidades vendidas / unidades em estoque hoje */
+  function stockTurnover(unitsSold, unitsInStock) {
+    return unitsInStock > 0 ? round2(unitsSold / unitsInStock) : 0;
+  }
+  /* ranking por valor parado em estoque (qty × custo; usa preço quando o custo é desconhecido) */
+  function stockValueRanking(products) {
+    const arr = Array.isArray(products) ? products : [];
+    const rows = arr.map(p => {
+      const qty = Number(p.qty) || 0;
+      const unit = typeof p.cost === "number" && isFinite(p.cost) ? p.cost : (Number(p.price) || 0);
+      return { code: p.code, name: String(p.name || p.code), qty, value: round2(qty * unit) };
+    }).filter(r => r.qty > 0 && r.value > 0);
+    rows.sort((a, b) => b.value - a.value);
+    return rows;
+  }
+  /* produtos com estoque > 0 mas sem nenhuma venda no período medido por avgMap (dailyAvgMap) */
+  function deadStock(products, avgMap) {
+    const arr = Array.isArray(products) ? products : [];
+    return arr.filter(p => (Number(p.qty) || 0) > 0 && !(avgMap && avgMap[p.code] > 0))
+      .map(p => {
+        const qty = Number(p.qty) || 0;
+        const unit = typeof p.cost === "number" && isFinite(p.cost) ? p.cost : (Number(p.price) || 0);
+        return { code: p.code, name: String(p.name || p.code), qty, value: round2(qty * unit) };
+      })
+      .sort((a, b) => b.value - a.value);
+  }
+  /* produtos com cobertura crítica: estoque acaba em até maxDays no ritmo atual de vendas */
+  function criticalCoverage(products, avgMap, maxDays) {
+    const arr = Array.isArray(products) ? products : [];
+    const rows = [];
+    arr.forEach(p => {
+      const qty = Number(p.qty) || 0;
+      const avg = (avgMap && avgMap[p.code]) || 0;
+      if (avg <= 0) return;
+      const days = daysOfStock(qty, avg);
+      if (isFinite(days) && days <= maxDays) rows.push({ code: p.code, name: String(p.name || p.code), qty, days: Math.max(0, Math.round(days)) });
+    });
+    rows.sort((a, b) => a.days - b.days);
+    return rows;
+  }
+
   return {
     QTY_MAX, PRICE_MAX,
     round2, parseMoney, escapeHtml, csvCell, csvNum,
@@ -354,6 +422,7 @@
     stripAccents, pixText, crc16, pixPayload,
     sessionSales, cashExpected,
     salesSummary, abcAnalysis, dailyAvgMap, daysOfStock,
-    salesByOperator, salesByHour, salesByWeekday, paymentBreakdown, dailyRevenueSeries, basketPairs
+    salesByOperator, salesByHour, salesByWeekday, paymentBreakdown, dailyRevenueSeries, basketPairs,
+    stockValueSummary, stockAlertCounts, stockTurnover, stockValueRanking, deadStock, criticalCoverage
   };
 });

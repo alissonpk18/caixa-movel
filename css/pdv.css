@@ -251,6 +251,8 @@
   .stat .k{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
   .stat .v{font-size:26px;font-weight:800;font-family:var(--mono);letter-spacing:-.5px;margin-top:4px}
   .stat.wide .v{font-size:32px;color:var(--ok)}
+  .stat.bad .v{color:var(--bad)}
+  .stat.warn .v{color:var(--warn)}
 
   /* navegação secundária: só texto com opacidade + border-bottom ativa
      (sem pílula cinza concorrendo com a ação principal da tela) */
@@ -362,6 +364,8 @@
   .basket-row .bp-names{font-size:13.5px;font-weight:700}
   .basket-row .bp-plus{color:var(--muted);font-weight:600}
   .basket-row .bp-count{font-family:var(--mono);font-weight:800;color:var(--brand);flex:0 0 auto}
+  .basket-row.warn .bp-count{color:var(--warn)}
+  .basket-row.bad .bp-count{color:var(--bad)}
 
   /* ============================================================
      TECLADO MANUAL (modal)
