@@ -60,8 +60,22 @@ function renderStock(){
   renderExpAlert();
   if(!DB.products.length){ el.innerHTML='<div class="empty-list">Nenhum produto cadastrado.</div>'; return; }
   const q=prodQuery.trim().toLowerCase();
-  const list=q ? DB.products.filter(p=>p.name.toLowerCase().includes(q)||p.code.includes(q)) : DB.products;
+  let list=q ? DB.products.filter(p=>p.name.toLowerCase().includes(q)||p.code.includes(q)) : DB.products.slice();
+  if(prodFilter==="low")      list=list.filter(p=>p.qty<=settings.lowStock);
+  else if(prodFilter==="exp") list=list.filter(p=>{ const c=expClass(p.exp); return c==="soon"||c==="expired"; });
   if(!list.length){ el.innerHTML='<div class="empty-list">Nenhum produto encontrado.</div>'; return; }
+  const [sortKey,sortDir]=prodSort.split("-");
+  const dir=sortDir==="desc"?-1:1;
+  list=list.slice().sort((a,b)=>{
+    let av,bv;
+    if(sortKey==="name")       { av=a.name.toLowerCase(); bv=b.name.toLowerCase(); }
+    else if(sortKey==="qty")   { av=a.qty; bv=b.qty; }
+    else if(sortKey==="price") { av=a.price; bv=b.price; }
+    else if(sortKey==="exp")   { av=a.exp||"9999-99-99"; bv=b.exp||"9999-99-99"; }
+    if(av<bv) return -1*dir;
+    if(av>bv) return  1*dir;
+    return 0;
+  });
   const avgMap=dailyAvgMap(DB.sales,14); // ritmo de venda dos últimos 14 dias
   el.innerHTML=list.map(p=>{
     const ec=expClass(p.exp);

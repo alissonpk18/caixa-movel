@@ -191,6 +191,15 @@ function wire(){
   // gerência: busca de produtos
   $("prodSearch").addEventListener("input", e=>{ prodQuery=e.target.value; renderStock(); });
 
+  // gerência: ordenação e filtro de produtos no estoque
+  $("prodSort").addEventListener("change", e=>{ prodSort=e.target.value; renderStock(); });
+  $("stockFilter").addEventListener("click", e=>{
+    const b=e.target.closest("button"); if(!b) return;
+    $("stockFilter").querySelectorAll("button").forEach(x=>x.classList.toggle("active", x===b));
+    prodFilter=b.dataset.filter;
+    renderStock();
+  });
+
   // gerência: limite de estoque baixo configurável
   $("lowThreshold").addEventListener("change", e=>{
     const v=parseInt(e.target.value,10);
