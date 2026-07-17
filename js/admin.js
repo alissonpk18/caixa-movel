@@ -21,16 +21,57 @@ let sb = null;
 let curStore = null;   // { id, name, email }
 let curUsers = [];
 
-/* mesma derivação de senha do app (js/auth.js) — mantenha em sincronia */
+/* ========== GERADOR DE HASH SHA-256 COM TRATAMENTO ROBUSTO ==========
+   Mesma derivação de senha do app (js/auth.js) — mantenha em sincronia.
+   Agora com:
+   - Verificações melhores de suporte
+   - Fallback seguro se o navegador não suportar Web Crypto
+   - Mensagens de erro informativas quando algo falha */
 async function hashPassword(pw){
-  try{
-    if(window.crypto && crypto.subtle && window.TextEncoder){
-      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("pdv#v1:"+pw));
-      return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+  // Validações prévias
+  if (!pw || typeof pw !== 'string') {
+    return { success: false, hash: null, error: 'Senha inválida' };
+  }
+
+  // Verificar se o navegador suporta Web Crypto API
+  const cryptoAvailable = !!(window.crypto && window.crypto.subtle && window.TextEncoder);
+  
+  if (!cryptoAvailable) {
+    // Navegador não suporta Web Crypto API
+    const missingFeatures = [];
+    if (!window.crypto) missingFeatures.push('crypto');
+    if (!window.crypto?.subtle) missingFeatures.push('crypto.subtle');
+    if (!window.TextEncoder) missingFeatures.push('TextEncoder');
+    
+    return { 
+      success: false, 
+      hash: null, 
+      error: `Seu navegador não suporta criptografia (${missingFeatures.join(', ')}). Use um navegador moderno: Chrome, Firefox, Safari ou Edge.`
+    };
+  }
+
+  // Tentar gerar o hash
+  try {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("pdv#v1:"+pw));
+    const hash = Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+    return { success: true, hash, error: null };
+  } catch (e) {
+    // Erro ao gerar o hash — pode ser contexto inseguro ou outras exceções
+    let errorMsg = 'Não foi possível gerar o hash da senha.';
+    
+    if (e.name === 'SecurityError' || (e.message && e.message.includes('Secure'))) {
+      errorMsg = 'Contexto inseguro: o site precisa estar em HTTPS ou localhost para usar criptografia.';
+    } else if (e.name === 'NotSupportedError') {
+      errorMsg = 'Navegador não suporta SHA-256. Tente outro navegador moderno (Chrome, Firefox, Safari, Edge).';
+    } else {
+      errorMsg += ` (Erro técnico: ${e.name || 'desconhecido'})`;
     }
-  }catch(e){}
-  return null;
+    
+    console.error('[hashPassword] Erro:', e);
+    return { success: false, hash: null, error: errorMsg };
+  }
 }
+
 const esc = (s)=>String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 function cfgOk(){ return typeof CLOUD_CONFIG!=="undefined" && CLOUD_CONFIG && CLOUD_CONFIG.url && CLOUD_CONFIG.anonKey; }
@@ -64,8 +105,12 @@ async function doLogin(){
   const email=$("admEmail").value.trim(), pass=$("admPass").value;
   $("admErr").textContent="";
   if(!email || !pass){ $("admErr").textContent="Informe e-mail e senha."; return; }
+  
+  // Primeiro: tentar fazer login com Supabase (valida credenciais básicas)
   const { error } = await sb.auth.signInWithPassword({ email, password:pass });
   if(error){ $("admErr").textContent="E-mail ou senha incorretos."; return; }
+  
+  // Segundo: validar se é administrador
   if(!(await isAdmin())){
     await sb.auth.signOut();
     $("admErr").textContent="Esta conta não é administradora da plataforma.";
@@ -229,9 +274,11 @@ async function saveNewPassword(){
   const pw=$("passInput").value;
   if(pw.length<4){ $("passErr").textContent="Senha muito curta (mín. 4 caracteres)."; return; }
   const u=curUsers[passTargetIndex]; if(!u){ closePassModal(); return; }
-  const hash=await hashPassword(pw);
-  if(!hash){ $("passErr").textContent="Não foi possível gerar a senha neste navegador."; return; }
-  const { error } = await sb.from("operators").update({ pass_hash:hash }).eq("username", u.username);
+  
+  const hashResult = await hashPassword(pw);
+  if(!hashResult.success){ $("passErr").textContent=hashResult.error; return; }
+  
+  const { error } = await sb.from("operators").update({ pass_hash: hashResult.hash }).eq("username", u.username);
   if(error){ $("passErr").textContent="Erro ao salvar — tente de novo."; return; }
   closePassModal();
   announceSaved(`✓ Senha de ${u.username} trocada.`);
@@ -245,10 +292,12 @@ async function addUser(){
   const err=$("nu_err"); err.textContent="";
   if(!/^[a-z0-9._-]{2,20}$/.test(username)){ err.textContent="Login inválido (2–20 letras/números, sem espaços)."; return; }
   if(pw.length<4){ err.textContent="Senha muito curta (mín. 4 caracteres)."; return; }
-  const hash=await hashPassword(pw);
-  if(!hash){ err.textContent="Não foi possível gerar a senha neste navegador."; return; }
+  
+  const hashResult = await hashPassword(pw);
+  if(!hashResult.success){ err.textContent=hashResult.error; return; }
+  
   const { error } = await sb.from("operators").insert({
-    username, store_id:curStore.id, name:name||username, role, can_add_stock:false, pass_hash:hash
+    username, store_id:curStore.id, name:name||username, role, can_add_stock:false, pass_hash: hashResult.hash
   });
   if(error){
     // username é chave única em TODO o sistema — outra empresa pode já tê-lo
