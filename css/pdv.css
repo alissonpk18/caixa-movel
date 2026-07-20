@@ -504,6 +504,29 @@
     pointer-events:none;letter-spacing:.3px;
   }
 
+  /* Indicador LED de conexão com a Nuvem */
+  #cloudStatusLed{
+    position:fixed;z-index:90;right:42px;bottom:calc(7.5px + var(--safe-b));
+    width:9px;height:9px;border-radius:50%;
+    background:var(--muted);
+    border:1px solid rgba(255,255,255,0.45);
+    pointer-events:auto;
+    cursor:pointer;
+    transition:background .3s, box-shadow .3s;
+  }
+  #cloudStatusLed.ok{
+    background:var(--ok);
+    box-shadow:0 0 6px var(--ok), 0 0 2px var(--ok) inset;
+  }
+  #cloudStatusLed.bad{
+    background:var(--bad);
+    box-shadow:0 0 6px var(--bad), 0 0 2px var(--bad) inset;
+  }
+  #cloudStatusLed.off{
+    background:var(--muted);
+    box-shadow:none;
+  }
+
   @media (prefers-reduced-motion: reduce){
     *{animation:none!important;transition:none!important}
   }

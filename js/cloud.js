@@ -56,6 +56,28 @@ function cloudEnabled(){
 }
 function cloudOn(){ return !!(sbClient && cloudStoreId); }
 
+/* Indicador LED visual da conexão de nuvem */
+function updateCloudLed(status){
+  const led = document.getElementById("cloudStatusLed");
+  if(!led) return;
+  led.classList.remove("ok", "bad", "off");
+  if(!cloudEnabled()){
+    led.style.display = "none";
+    return;
+  }
+  led.style.display = "block";
+  if(status === "ok"){
+    led.classList.add("ok");
+    led.title = "Nuvem conectada e sincronizada";
+  }else if(status === "bad"){
+    led.classList.add("bad");
+    led.title = "Sem conexão ou erro com a nuvem";
+  }else{
+    led.classList.add("off");
+    led.title = "Aguardando conexão com a nuvem...";
+  }
+}
+
 /* carrega a lib só quando a nuvem está configurada (não pesa o modo local) */
 function cloudLoadLib(){
   return new Promise((resolve, reject)=>{
@@ -74,7 +96,24 @@ function cloudLoadLib(){
    aparelho já estiver vinculado a uma empresa de uma sessão anterior,
    retoma a sincronização sem precisar logar de novo. */
 async function cloudInit(){
-  if(!cloudEnabled()) return;
+  if(!cloudEnabled()){
+    updateCloudLed("off");
+    return;
+  }
+  updateCloudLed("off");
+
+  // Monitoramento de rede imediato
+  window.addEventListener("online", ()=>{
+    if(cloudOn()){
+      cloudSync().catch(()=>{});
+    }else{
+      sbClient.from("device_links").select("store_id").limit(1)
+        .then(({error})=> updateCloudLed(error ? "bad" : "ok"))
+        .catch(()=> updateCloudLed("bad"));
+    }
+  });
+  window.addEventListener("offline", ()=> updateCloudLed("bad"));
+
   try{
     await cloudLoadLib();
     sbClient = window.supabase.createClient(CLOUD_CONFIG.url, CLOUD_CONFIG.anonKey);
@@ -89,7 +128,10 @@ async function cloudInit(){
       await cloudPull();
       cloudStartLoops();
     }
-  }catch(e){ /* sem rede, nuvem fora do ar, ou sign-in anônimo desabilitado: segue local */ }
+    updateCloudLed("ok");
+  }catch(e){
+    updateCloudLed("bad");
+  }
 }
 
 /* chamado pelo login() quando o usuário não existe neste aparelho.
@@ -102,7 +144,10 @@ async function cloudRouteLogin(username, plainPassword){
     const hash = await hashPassword(plainPassword);
     if(!hash) return false;
     const { data, error } = await sbClient.rpc("login_operator", { p_username:username, p_hash:hash });
-    if(error || !data || !data.length) return false;
+    if(error || !data || !data.length){
+      if(error) updateCloudLed("bad");
+      return false;
+    }
     const newStoreId = data[0].store_id;
     /* aparelho usado antes por OUTRA empresa (raro — reaproveitado,
        revogado e realugado etc.): zera o cache local antes de puxar,
@@ -117,8 +162,12 @@ async function cloudRouteLogin(username, plainPassword){
     await sset("pdv:cloudLastStoreId", newStoreId);
     await cloudPull();
     cloudStartLoops();
+    updateCloudLed("ok");
     return true;
-  }catch(e){ return false; }
+  }catch(e){
+    updateCloudLed("bad");
+    return false;
+  }
 }
 
 /* ---------- push (local → nuvem) ---------- */
@@ -399,6 +448,7 @@ async function cloudPull(){
   }finally{ cloudApplying = false; }
   cloudReconcileSession();
   cloudRefreshUI();
+  updateCloudLed("ok");
 }
 
 /* após um pull, o usuário logado NESTE aparelho pode ter sido removido ou
@@ -428,15 +478,29 @@ function cloudReconcileSession(){
 function cloudStartLoops(){
   if(cloudStartLoops.done) return;
   cloudStartLoops.done = true;
-  window.addEventListener("online", ()=>{ cloudSync().catch(()=>{}); });
   document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) cloudSync().catch(()=>{}); });
   setInterval(()=>{ if(!document.hidden) cloudSync().catch(()=>{}); }, CLOUD_PULL_MS);
 }
 
 async function cloudSync(){
-  if(cloudOn() && navigator.onLine && !(await cloudStillLinked())){ cloudHandleRevoked(); return; }
-  try{ await cloudPush(); }catch(e){}
-  try{ await cloudPull(); }catch(e){}
+  if(!cloudOn() || !navigator.onLine){
+    if(!navigator.onLine && cloudEnabled()){
+      updateCloudLed("bad");
+    }
+    return;
+  }
+  if(!(await cloudStillLinked())){ 
+    cloudHandleRevoked(); 
+    updateCloudLed("bad");
+    return; 
+  }
+  try{ 
+    await cloudPush(); 
+    await cloudPull();
+    updateCloudLed("ok");
+  }catch(e){
+    updateCloudLed("bad");
+  }
 }
 
 /* re-renderiza o que estiver na tela após um pull */
