@@ -354,7 +354,7 @@ async function cloudPull(){
     /* opcional: bancos ainda sem a migração da função my_store_name()
        não podem derrubar login/sincronização por causa só do nome de
        exibição da empresa — erro aqui é tratado à parte, nunca lançado. */
-    sbClient.rpc("my_store_name").catch(e=>({data:null, error:e}))
+    Promise.resolve(sbClient.rpc("my_store_name")).catch(e=>({data:null, error:e}))
   ]);
   const err = pr.error || sl.error || kv.error || ops.error || ce.error;
   if(err) throw err;
