@@ -156,6 +156,14 @@ async function cloudRouteLogin(username, plainPassword){
     const prevStoreId = await sget("pdv:cloudLastStoreId");
     if(prevStoreId && prevStoreId !== newStoreId){
       DB.products=[]; DB.sales=[]; DB.users=[]; DB.cash={ open:null, history:[] };
+      if(typeof settings === "object"){
+        settings.lowStock = 5;
+        settings.expWarnDays = 30;
+        settings.pixKey = "";
+        settings.pixName = "";
+        settings.pixCity = "";
+        settings.storeName = "";
+      }
       await sset("pdv:cloudSalesPullMark:"+prevStoreId, null);
     }
     cloudStoreId = newStoreId;

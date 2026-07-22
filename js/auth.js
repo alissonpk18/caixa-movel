@@ -82,15 +82,25 @@ async function login(){
   try{
     const u=$("loginUser").value.trim().toLowerCase();
     const p=$("loginPass").value;
-    let found = DB.users.find(x=>x.username.toLowerCase()===u);
-    let ok = found ? await verifyPassword(found,p) : false;
-    /* usuário não existe neste aparelho: pergunta à nuvem de qual empresa
-       ele é (RPC login_operator, senha conferida no banco) — se bater,
-       vincula o aparelho e baixa os dados da empresa automaticamente */
-    if(!ok && typeof cloudRouteLogin==="function" && await cloudRouteLogin(u,p)){
+    
+    let found = null;
+    let ok = false;
+
+    // Se estiver online e com nuvem ativada, tenta sempre validar na nuvem primeiro,
+    // garantindo que possamos detectar mudanças de empresa para o mesmo login (ex: gerente/caixa)
+    if(navigator.onLine && typeof cloudRouteLogin==="function"){
+      if(await cloudRouteLogin(u,p)){
+        found = DB.users.find(x=>x.username.toLowerCase()===u);
+        ok = found ? await verifyPassword(found,p) : false;
+      }
+    }
+
+    // Se falhou na nuvem (ou está offline/local), tenta a autenticação local
+    if(!ok){
       found = DB.users.find(x=>x.username.toLowerCase()===u);
       ok = found ? await verifyPassword(found,p) : false;
     }
+
     if(!ok){ $("loginErr").textContent="Usuário ou senha incorretos."; beep("bad"); return; }
     if(!found.passHash){
       const h=await hashPassword(p);
