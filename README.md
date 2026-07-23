@@ -119,6 +119,15 @@ O acesso é garantido pelo banco (RLS): contas comuns não enxergam as
 empresas alheias mesmo chamando a API diretamente, e só a função de
 login pode vincular um aparelho a uma empresa (nunca o cliente direto).
 
+### Dados de demonstração para apresentação
+
+Para popular uma empresa já cadastrada com um catálogo maior, histórico
+de vendas e de caixa (útil para demonstrar o app sem precisar bater
+venda por venda antes de apresentar), use
+[`supabase/seed_demo_data.sql`](supabase/seed_demo_data.sql): edite o
+nome da empresa no topo do arquivo, cole no SQL Editor do Supabase e
+rode. É seguro rodar mais de uma vez.
+
 ### Instalar no celular (PWA)
 
 Abra a URL no navegador do celular e use **"Adicionar à tela inicial"**. Após a
